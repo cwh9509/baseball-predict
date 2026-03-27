@@ -103,6 +103,8 @@ def load_latest_model(league: Optional[str] = None):
     path = Path(metadata.get("path", ""))
 
     if not path.exists():
+        path = get_model_dir() / path.name
+    if not path.exists():
         logger.error(f"모델 파일 없음: {path}")
         return None, None
 
@@ -161,49 +163,63 @@ def load_ensemble_models(league: Optional[str] = None) -> tuple:
     cat_model, cat_version = None, None
     meta_model, meta_version = None, None
 
+    def _resolve_path(stored: str) -> Path:
+        p = Path(stored)
+        if p.exists():
+            return p
+        return get_model_dir() / p.name
+
     if xgb_meta_path.exists():
         try:
             meta = json.loads(xgb_meta_path.read_text())
-            path = Path(meta.get("path", ""))
+            path = _resolve_path(meta.get("path", ""))
             if path.exists():
                 import xgboost as xgb
                 xgb_model = xgb.XGBClassifier()
                 xgb_model.load_model(str(path))
                 xgb_version = meta.get("version")
+            else:
+                logger.error(f"XGBoost 모델 파일 없음: {path}")
         except Exception as e:
             logger.error(f"XGBoost 로드 실패: {e}")
 
     if lgb_meta_path.exists():
         try:
             meta = json.loads(lgb_meta_path.read_text())
-            path = Path(meta.get("path", ""))
+            path = _resolve_path(meta.get("path", ""))
             if path.exists():
                 import lightgbm as lgb_lib
                 lgb_model = lgb_lib.Booster(model_file=str(path))
                 lgb_version = meta.get("version")
+            else:
+                logger.error(f"LightGBM 모델 파일 없음: {path}")
         except Exception as e:
             logger.error(f"LightGBM 로드 실패: {e}")
 
     if cat_meta_path.exists():
         try:
             meta = json.loads(cat_meta_path.read_text())
-            path = Path(meta.get("path", ""))
+            path = _resolve_path(meta.get("path", ""))
             if path.exists():
                 from catboost import CatBoostClassifier
                 cat_model = CatBoostClassifier()
                 cat_model.load_model(str(path))
                 cat_version = meta.get("version")
+            else:
+                logger.error(f"CatBoost 모델 파일 없음: {path}")
         except Exception as e:
             logger.error(f"CatBoost 로드 실패: {e}")
 
     if meta_meta_path.exists():
         try:
             meta = json.loads(meta_meta_path.read_text())
-            path = Path(meta.get("path", ""))
+            path = _resolve_path(meta.get("path", ""))
             if path.exists():
                 with open(path, "rb") as f:
                     meta_model = pickle.load(f)
                 meta_version = meta.get("version")
+            else:
+                logger.error(f"Stacking 메타 모델 파일 없음: {path}")
         except Exception as e:
             logger.error(f"Stacking 메타 모델 로드 실패: {e}")
 
