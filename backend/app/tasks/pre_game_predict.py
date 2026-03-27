@@ -13,8 +13,8 @@ from app.pipeline.etl_runner import ETLRunner
 logger = logging.getLogger(__name__)
 
 
-async def run() -> None:
-    today = date.today()
+async def run(target_date: date | None = None) -> None:
+    today = target_date or date.today()
     logger.info(f"당일 경기 예측 시작: {today}")
 
     # 오늘 일정이 없으면 먼저 수집
