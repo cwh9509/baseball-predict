@@ -15,9 +15,9 @@ venv/
 backend/ml_models/*.joblib
 !backend/ml_models/.gitkeep
 
-# 원시 데이터 캐시
-data/raw/
-!data/raw/.gitkeep
+# 원시 데이터 캐시 (MLB parquet 제외, KBO 투수 통계는 포함)
+data/raw/*.parquet
+data/raw/schedule_*
 
 # Jupyter
 .ipynb_checkpoints/
