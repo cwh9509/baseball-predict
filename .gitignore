@@ -12,12 +12,7 @@ venv/
 *.env
 
 # ML 모델
-backend/ml_models/*.ubj
-backend/ml_models/*.txt
-backend/ml_models/*.pkl
 backend/ml_models/*.joblib
-backend/ml_models/*.cbm
-backend/ml_models/*.json
 !backend/ml_models/.gitkeep
 
 # 원시 데이터 캐시
