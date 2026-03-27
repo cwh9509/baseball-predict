@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+*.env
+
+# ML 모델
+backend/ml_models/*.ubj
+backend/ml_models/*.txt
+backend/ml_models/*.pkl
+backend/ml_models/*.joblib
+backend/ml_models/*.cbm
+backend/ml_models/*.json
+!backend/ml_models/.gitkeep
+
+# 원시 데이터 캐시
+data/raw/
+!data/raw/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Node.js
+node_modules/
+.next/
+.nuxt/
+dist/
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.cursor/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic
+# (versions 폴더는 추적 필요)
+
+# 환경변수 (절대 커밋 금지)
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,76 @@
+[tool.poetry]
+name = "baseball-predict-backend"
+version = "0.1.0"
+description = "야구 경기 승리 예측 시스템 백엔드"
+authors = []
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+# Web 프레임워크
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+
+# DB
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
+asyncpg = "^0.30.0"
+alembic = "^1.14.0"
+
+# 설정 관리
+pydantic-settings = "^2.6.0"
+
+# Redis 캐시
+redis = {extras = ["asyncio"], version = "^5.2.0"}
+
+# HTTP 클라이언트 (날씨 API 등)
+httpx = "^0.28.0"
+
+# 야구 데이터
+pybaseball = "^2.2.7"
+beautifulsoup4 = "^4.12.0"
+lxml = "^5.3.0"
+
+# Claude API
+anthropic = "^0.40.0"
+
+# ML
+xgboost = "^2.1.0"
+lightgbm = "^4.5.0"
+catboost = "^1.2.0"
+scikit-learn = "^1.6.0"
+pandas = "^2.2.0"
+numpy = "^2.2.0"
+joblib = "^1.4.0"
+
+# 스케줄러
+apscheduler = "^3.10.0"
+
+# 템플릿 (LLM 프롬프트)
+jinja2 = "^3.1.0"
+
+# 유틸
+python-dateutil = "^2.9.0"
+pyarrow = "^18.0.0"      # Parquet 캐시용
+mlb-statsapi = "^1.9.0"
+optuna = "^4.8.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+httpx = "^0.28.0"          # FastAPI 테스트 클라이언트
+ruff = "^0.8.0"            # 린터 + 포매터
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
