@@ -103,7 +103,8 @@ def load_latest_model(league: Optional[str] = None):
     path = Path(metadata.get("path", ""))
 
     if not path.exists():
-        path = get_model_dir() / path.name
+        filename = metadata.get("path", "").replace("\\", "/").split("/")[-1]
+        path = get_model_dir() / filename
     if not path.exists():
         logger.error(f"모델 파일 없음: {path}")
         return None, None
@@ -167,7 +168,8 @@ def load_ensemble_models(league: Optional[str] = None) -> tuple:
         p = Path(stored)
         if p.exists():
             return p
-        return get_model_dir() / p.name
+        filename = stored.replace("\\", "/").split("/")[-1]
+        return get_model_dir() / filename
 
     if xgb_meta_path.exists():
         try:
