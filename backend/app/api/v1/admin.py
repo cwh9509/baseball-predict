@@ -38,11 +38,24 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
 
 
 @router.post("/collect-results")
-async def trigger_collect_results():
+async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""
-    from app.tasks.daily_data_pull import run
     import asyncio
+    from datetime import datetime, timedelta
+    from app.pipeline.etl_runner import ETLRunner
 
-    logger.info("수동 트리거: 전날 결과 수집 시작")
-    asyncio.create_task(run())
-    return {"status": "started"}
+    if target_date:
+        d = datetime.strptime(target_date, "%Y-%m-%d").date()
+    else:
+        from datetime import date as date_cls
+        d = date_cls.today() - timedelta(days=1)
+
+    logger.info(f"수동 트리거: 경기 결과 수집 시작 ({d})")
+
+    async def _run():
+        runner = ETLRunner()
+        await runner.run_results(d)
+        logger.info(f"경기 결과 수집 완료: {d}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "date": str(d)}
