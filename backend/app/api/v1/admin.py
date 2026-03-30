@@ -37,6 +37,28 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
     return {"status": "started", "date": str(d), "force": force}
 
 
+@router.post("/lineup")
+async def trigger_lineup(target_date: str = Query(default=None)):
+    """라인업 수동 수집 트리거. target_date 없으면 오늘"""
+    import asyncio
+    from datetime import date as date_cls, datetime
+
+    if target_date:
+        d = datetime.strptime(target_date, "%Y-%m-%d").date()
+    else:
+        d = date_cls.today()
+
+    logger.info(f"수동 트리거: 라인업 수집 시작 ({d})")
+
+    async def _run():
+        from app.pipeline.lineup_watcher import run_for_date
+        await run_for_date(d)
+        logger.info(f"라인업 수집 완료: {d}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "date": str(d)}
+
+
 @router.post("/collect-results")
 async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""

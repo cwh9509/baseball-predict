@@ -41,5 +41,7 @@ class PredictionDetailResponse(BaseModel):
     predicted_winner: dict   # {id, name}
     confidence_tier: str
     feature_snapshot: dict
+    predicted_home_score: Optional[int] = None
+    predicted_away_score: Optional[int] = None
     explanation: Optional[ExplanationSchema] = None
     lineup: Optional[LineupSchema] = None

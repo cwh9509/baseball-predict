@@ -11,7 +11,7 @@ import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.builder import build_features
-from app.ml.model_registry import load_latest_model, load_ensemble_models
+from app.ml.model_registry import load_latest_model, load_ensemble_models, load_score_models
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,8 @@ class Predictor:
         self._league = league
         # league → (xgb_model, lgb_model, cat_model, meta_model, version)
         self._ensemble: dict[str, tuple] = {}
+        # league → (home_score_model, away_score_model, version)
+        self._score_models: dict[str, tuple] = {}
         self._load_models(self._league)
 
     def _load_models(self, league: Optional[str] = None):
@@ -62,6 +64,12 @@ class Predictor:
             logger.info(f"[{lg_key}] 앙상블 로드: {'+'.join(models_loaded)} v{version}")
 
         self._ensemble[lg_key] = (xgb_model, lgb_model, cat_model, meta_model, version or "no-model")
+
+        # 스코어 모델 로드
+        home_score, away_score, score_ver = load_score_models(league)
+        if home_score is not None:
+            logger.info(f"[{lg_key}] 스코어 회귀 모델 로드: v{score_ver}")
+        self._score_models[lg_key] = (home_score, away_score, score_ver)
 
     def _get_models(self, league: str) -> tuple:
         key = league if league in self._ensemble else "default"
@@ -136,6 +144,21 @@ class Predictor:
             for k, v in snapshot.items()
         }
 
+        # 스코어 예측
+        predicted_home_score = None
+        predicted_away_score = None
+        lg_key = game.league if game.league in self._score_models else "default"
+        score_tuple = self._score_models.get(lg_key, (None, None, None))
+        home_score_model, away_score_model, _ = score_tuple
+        if home_score_model is not None and away_score_model is not None:
+            try:
+                predicted_home_score = round(float(home_score_model.predict(feature_2d)[0]))
+                predicted_away_score = round(float(away_score_model.predict(feature_2d)[0]))
+                predicted_home_score = max(0, predicted_home_score)
+                predicted_away_score = max(0, predicted_away_score)
+            except Exception as e:
+                logger.warning(f"스코어 예측 실패 (game_id={game_id}): {e}")
+
         return {
             "game_id": game_id,
             "model_version": model_version,
@@ -143,6 +166,8 @@ class Predictor:
             "home_win_prob": round(home_win_prob, 4),
             "confidence_tier": confidence,
             "feature_snapshot": clean_snapshot,
+            "predicted_home_score": predicted_home_score,
+            "predicted_away_score": predicted_away_score,
         }
 
 

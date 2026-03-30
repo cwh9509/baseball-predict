@@ -36,6 +36,8 @@ export interface PredictionDetail {
   predicted_winner: { id: number; name: string }
   confidence_tier: "high" | "medium" | "low"
   feature_snapshot: Record<string, unknown>
+  predicted_home_score?: number
+  predicted_away_score?: number
   explanation?: Explanation
   lineup?: Lineup
 }

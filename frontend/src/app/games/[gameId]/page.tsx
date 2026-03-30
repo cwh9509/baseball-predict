@@ -78,6 +78,16 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               awayTeam="원정팀"
             />
 
+            {/* 예상 스코어 */}
+            {prediction.predicted_home_score != null && prediction.predicted_away_score != null && (
+              <div className="mt-3 text-center">
+                <p className="text-gray-400 text-xs mb-1">예상 스코어</p>
+                <p className="text-2xl font-bold text-gray-800">
+                  {prediction.predicted_home_score} <span className="text-gray-400 text-lg">–</span> {prediction.predicted_away_score}
+                </p>
+              </div>
+            )}
+
             <div className="mt-4 text-center">
               <p className="text-gray-500 text-sm">예측 승자</p>
               <p className="text-lg font-bold text-primary mt-1">

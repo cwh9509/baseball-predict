@@ -20,7 +20,7 @@ from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.features.builder import get_feature_columns, build_features
 from app.features.elo_features import invalidate_elo_cache
-from app.ml.model_registry import save_xgb_model, save_lgb_model, save_cat_model, save_meta_model
+from app.ml.model_registry import save_xgb_model, save_lgb_model, save_cat_model, save_meta_model, save_score_models
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,20 @@ class Trainer:
         save_meta_model(meta_model, version, league=settings.league)
         logger.info("Stacking 메타 모델 저장 완료")
 
-        # ── 5. 앙상블 CV 정확도 ────────────────────────────────────────
+        # ── 5. 스코어 회귀 모델 ───────────────────────────────────────
+        X_score, y_home, y_away = await self._collect_score_training_data()
+        if len(X_score) >= 50:
+            logger.info(f"스코어 회귀 학습 데이터: {len(X_score)}경기")
+            home_score_model, away_score_model = await asyncio.to_thread(
+                self._train_score_models, X_score, y_home, y_away, version
+            )
+        else:
+            logger.warning(f"스코어 학습 데이터 부족: {len(X_score)}개 — 스코어 모델 건너뜀")
+
+        # ── 6. 앙상블 CV 정확도 ────────────────────────────────────────
         self._log_ensemble_cv(xgb_model, lgb_model, cat_model, meta_model, X, y, tscv)
 
-        # ── 6. 피처 중요도 ─────────────────────────────────────────────
+        # ── 7. 피처 중요도 ─────────────────────────────────────────────
         feature_cols = get_feature_columns(settings.league)
         importances = xgb_model.feature_importances_
         top5 = np.argsort(importances)[::-1][:5]
@@ -252,6 +262,67 @@ class Trainer:
             scores.append((preds == y_val).mean())
 
         logger.info(f"Stacking 앙상블 CV 정확도: {np.mean(scores):.3f} ± {np.std(scores):.3f}")
+
+    def _train_score_models(self, X, y_home, y_away, version: str):
+        """홈/원정 득점 회귀 모델 학습"""
+        import xgboost as xgb
+
+        home_model = xgb.XGBRegressor(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+        )
+        away_model = xgb.XGBRegressor(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+        )
+        home_model.fit(X, y_home)
+        away_model.fit(X, y_away)
+        save_score_models(home_model, away_model, version, league=settings.league)
+        logger.info("스코어 회귀 모델 저장 완료")
+        return home_model, away_model
+
+    async def _collect_score_training_data(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """스코어 회귀용 학습 데이터 수집 (home_score, away_score 있는 경기만)"""
+        from sqlalchemy import select
+        from app.models import Game
+
+        X_rows, y_home, y_away = [], [], []
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Game).where(
+                    Game.status == "final",
+                    Game.winner_team_id.isnot(None),
+                    Game.home_score.isnot(None),
+                    Game.away_score.isnot(None),
+                    Game.league == settings.league,
+                ).order_by(Game.game_date.asc())
+            )
+            games = result.scalars().all()
+
+            for game in games:
+                try:
+                    feature_array, _ = await build_features(db, game.id)
+                    X_rows.append(feature_array)
+                    y_home.append(float(game.home_score))
+                    y_away.append(float(game.away_score))
+                except Exception:
+                    pass
+
+        if not X_rows:
+            return np.array([]), np.array([]), np.array([])
+
+        return np.array(X_rows), np.array(y_home), np.array(y_away)
 
     async def _collect_training_data(self) -> tuple[np.ndarray, np.ndarray]:
         from sqlalchemy import select

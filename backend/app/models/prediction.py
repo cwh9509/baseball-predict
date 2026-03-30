@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, ForeignKey, Integer, Numeric, String, Text, TIMESTAMP, text
+from sqlalchemy import Boolean, CheckConstraint, Column, Float, ForeignKey, Integer, Numeric, String, Text, TIMESTAMP, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -19,6 +19,9 @@ class Prediction(Base):
     llm_explanation = Column(Text)
     llm_model = Column(String(50))
     llm_generated_at = Column(TIMESTAMP(timezone=True))
+    # 스코어 예측
+    predicted_home_score = Column(Float, nullable=True)
+    predicted_away_score = Column(Float, nullable=True)
     # 결과 추적
     was_correct = Column(Boolean)
     predicted_at = Column(TIMESTAMP(timezone=True), server_default=text("NOW()"), nullable=False)

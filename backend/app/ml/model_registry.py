@@ -229,6 +229,69 @@ def load_ensemble_models(league: Optional[str] = None) -> tuple:
     return xgb_model, lgb_model, cat_model, meta_model, version
 
 
+def save_score_models(home_model, away_model, version: str, league: Optional[str] = None) -> None:
+    """스코어 회귀 모델 저장 (홈/원정 득점 각각)"""
+    lg = (league or settings.league).upper()
+
+    home_path = get_model_dir() / f"score_home-{lg.lower()}-v{version}.ubj"
+    away_path = get_model_dir() / f"score_away-{lg.lower()}-v{version}.ubj"
+
+    home_model.get_booster().save_model(str(home_path))
+    away_model.get_booster().save_model(str(away_path))
+
+    metadata = {
+        "version": version,
+        "league": lg,
+        "home_path": str(home_path),
+        "away_path": str(away_path),
+        "feature_columns": FEATURE_COLUMNS,
+    }
+    meta_path = get_model_dir() / f"model_metadata_score_{lg.lower()}.json"
+    meta_path.write_text(json.dumps(metadata, indent=2))
+    logger.info(f"스코어 회귀 모델 저장: {home_path}, {away_path}")
+
+
+def load_score_models(league: Optional[str] = None) -> tuple:
+    """스코어 회귀 모델 로드
+    Returns: (home_model, away_model, version) — 없으면 (None, None, None)
+    """
+    lg = (league or settings.league).upper()
+    meta_path = get_model_dir() / f"model_metadata_score_{lg.lower()}.json"
+
+    if not meta_path.exists():
+        return None, None, None
+
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception:
+        return None, None, None
+
+    def _resolve(stored: str) -> Path:
+        p = Path(stored)
+        if p.exists():
+            return p
+        filename = stored.replace("\\", "/").split("/")[-1]
+        return get_model_dir() / filename
+
+    home_path = _resolve(meta.get("home_path", ""))
+    away_path = _resolve(meta.get("away_path", ""))
+
+    if not home_path.exists() or not away_path.exists():
+        logger.error(f"스코어 모델 파일 없음: {home_path}, {away_path}")
+        return None, None, None
+
+    try:
+        import xgboost as xgb
+        home_model = xgb.XGBRegressor()
+        home_model.load_model(str(home_path))
+        away_model = xgb.XGBRegressor()
+        away_model.load_model(str(away_path))
+        return home_model, away_model, meta.get("version")
+    except Exception as e:
+        logger.error(f"스코어 모델 로드 실패: {e}")
+        return None, None, None
+
+
 def _load_metadata_legacy() -> Optional[dict]:
     """레거시 model_metadata.json (리그 구분 없던 구버전)"""
     meta_path = get_model_dir() / "model_metadata.json"

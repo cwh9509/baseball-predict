@@ -92,6 +92,8 @@ async def get_prediction(
         predicted_winner={"id": winner.id, "name": winner.name} if winner else {},
         confidence_tier=pred.confidence_tier,
         feature_snapshot=pred.feature_snapshot or {},
+        predicted_home_score=int(pred.predicted_home_score) if pred.predicted_home_score is not None else None,
+        predicted_away_score=int(pred.predicted_away_score) if pred.predicted_away_score is not None else None,
         explanation=explanation,
         lineup=lineup,
     )

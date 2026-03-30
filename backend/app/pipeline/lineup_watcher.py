@@ -26,13 +26,18 @@ KST = timezone(timedelta(hours=9))
 async def run() -> None:
     """당일 미확정 경기 라인업 체크 및 업데이트"""
     today = datetime.now(KST).date()
-    logger.info(f"라인업 감시 시작 ({today})")
+    await run_for_date(today)
+
+
+async def run_for_date(target_date: date) -> None:
+    """특정 날짜 미확정 경기 라인업 체크 및 업데이트"""
+    logger.info(f"라인업 감시 시작 ({target_date})")
 
     async with AsyncSessionLocal() as db:
-        # 오늘 KBO 경기 중 라인업 미확정인 것만
+        # KBO 경기 중 라인업 미확정인 것만
         result = await db.execute(
             select(Game).where(
-                Game.game_date == today,
+                Game.game_date == target_date,
                 Game.league == "KBO",
                 Game.status == "scheduled",
                 Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None),
@@ -41,10 +46,10 @@ async def run() -> None:
         games = result.scalars().all()
 
         if not games:
-            logger.info("오늘 라인업 확인 대상 경기 없음")
+            logger.info(f"라인업 확인 대상 경기 없음 ({target_date})")
             return
 
-        logger.info(f"{len(games)}경기 라인업 확인 중...")
+        logger.info(f"{len(games)}경기 라인업 확인 중... ({target_date})")
 
         from app.collectors.lineup_collector import KBOLineupCollector
         collector = KBOLineupCollector()
@@ -52,20 +57,31 @@ async def run() -> None:
         updated_count = 0
         for game in games:
             if not game.external_game_id:
+                logger.debug(f"game_id={game.id} external_game_id 없음 — 건너뜀")
                 continue
 
+            logger.debug(f"game_id={game.id} (external={game.external_game_id}) 라인업 요청 중...")
             try:
                 lineup = await collector.fetch_lineup(game.external_game_id)
                 if lineup:
+                    logger.debug(
+                        f"game_id={game.id} 라인업 응답: "
+                        f"home_starter={lineup.get('home_starter')}, "
+                        f"away_starter={lineup.get('away_starter')}, "
+                        f"home_lineup={len(lineup.get('home_lineup') or [])}명, "
+                        f"away_lineup={len(lineup.get('away_lineup') or [])}명"
+                    )
                     changed = await _update_game_lineup(db, game, lineup)
                     if changed:
                         updated_count += 1
                         # 라인업 확정 시 예측 재실행
                         await _retrigger_prediction(db, game.id)
+                else:
+                    logger.info(f"game_id={game.id} 라인업 응답 없음 (아직 미발표)")
             except Exception as e:
-                logger.warning(f"game_id={game.id} 라인업 수집 실패: {e}")
+                logger.warning(f"game_id={game.id} 라인업 수집 실패: {e}", exc_info=True)
 
-    logger.info(f"라인업 감시 완료 — {updated_count}경기 업데이트")
+    logger.info(f"라인업 감시 완료 — {updated_count}경기 업데이트 ({target_date})")
 
 
 async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> bool:
@@ -149,6 +165,8 @@ async def _retrigger_prediction(db: AsyncSession, game_id: int) -> None:
                     home_win_prob=result["home_win_prob"],
                     confidence_tier=result["confidence_tier"],
                     feature_snapshot=result["feature_snapshot"],
+                    predicted_home_score=result.get("predicted_home_score"),
+                    predicted_away_score=result.get("predicted_away_score"),
                     predicted_at=datetime.now(timezone.utc),
                     llm_explanation=None,   # 라인업 변경 시 설명 초기화
                     llm_generated_at=None,
