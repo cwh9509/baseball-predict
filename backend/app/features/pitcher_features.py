@@ -26,18 +26,20 @@ async def get_kbo_starter_era(
 ) -> Optional[float]:
     """KBO 선발투수 개인 ERA (statiz 캐시에서 이름으로 조회)
     이름 미지정 또는 매핑 실패 시 None 반환 → 팀 로테이션 ERA 폴백
+    현 시즌 데이터 없으면 직전 시즌으로 폴백
     """
     if not name:
         return None
     from app.collectors.kbo_collector import KBOCollector
-    all_stats = await KBOCollector().fetch_pitcher_stats_season(season)
-    # 동일 팀 이름 우선, 없으면 이름만으로 매칭
-    for ps in all_stats:
-        if ps.name == name and ps.team_short == team_short:
-            return ps.era
-    for ps in all_stats:
-        if ps.name == name:
-            return ps.era
+    collector = KBOCollector()
+    for s in [season, season - 1]:
+        all_stats = await collector.fetch_pitcher_stats_season(s)
+        for ps in all_stats:
+            if ps.name == name and ps.team_short == team_short:
+                return ps.era
+        for ps in all_stats:
+            if ps.name == name:
+                return ps.era
     return None
 
 
