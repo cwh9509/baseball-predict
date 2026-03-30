@@ -45,6 +45,51 @@ def create_app() -> FastAPI:
         scheduler.start()
         logger.info("앱 시작 — 스케줄러 실행 중")
 
+        import asyncio
+        asyncio.create_task(_startup_catchup())
+
+    async def _startup_catchup():
+        """시작 시 누락된 예측/결과 자동 보완"""
+        import asyncio
+        from datetime import date, timedelta
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models import Game, Prediction
+
+        await asyncio.sleep(5)  # DB 연결 안정화 대기
+
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        async with AsyncSessionLocal() as db:
+            # 어제 결과 수집 여부 확인
+            yesterday_final = await db.execute(
+                select(Game).where(Game.game_date == yesterday, Game.status == "final", Game.league == settings.league)
+            )
+            if not yesterday_final.scalars().first():
+                logger.info(f"시작 시 어제({yesterday}) 결과 수집")
+                from app.pipeline.etl_runner import ETLRunner
+                await ETLRunner().run_results(yesterday)
+
+            # 오늘 예측 여부 확인
+            today_pred = await db.execute(
+                select(Prediction).join(Game).where(Game.game_date == today, Game.league == settings.league)
+            )
+            if not today_pred.scalars().first():
+                logger.info(f"시작 시 오늘({today}) 예측 실행")
+                from app.tasks.pre_game_predict import run
+                await run()
+
+        # 향후 7일 경기 일정 수집
+        from app.pipeline.etl_runner import ETLRunner
+        runner = ETLRunner()
+        for i in range(1, 8):
+            future_date = today + timedelta(days=i)
+            try:
+                await runner.run_for_date(future_date)
+            except Exception as e:
+                logger.warning(f"향후 경기 수집 실패 ({future_date}): {e}")
+
     @app.on_event("shutdown")
     async def shutdown_event():
         scheduler.shutdown(wait=False)
