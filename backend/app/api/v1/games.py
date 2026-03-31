@@ -65,6 +65,8 @@ async def get_games_today(
                 predicted_winner=winner_team.name if winner_team else "알 수 없음",
                 confidence_tier=pred.confidence_tier,
                 has_explanation=pred.llm_explanation is not None,
+                predicted_home_score=int(pred.predicted_home_score) if pred.predicted_home_score is not None else None,
+                predicted_away_score=int(pred.predicted_away_score) if pred.predicted_away_score is not None else None,
             )
 
         # 날씨 요약

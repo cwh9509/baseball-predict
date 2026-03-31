@@ -61,10 +61,7 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    # KBO 라인업 감시
-    # 주말(토·일): 14:00 시작 → 12:00~15:30 체크
-    # 평일(월~금): 18:30 시작 → 16:00~19:30 체크
-    # → 12:00~19:30 30분 간격으로 커버 (불필요한 호출은 DB 조회 후 즉시 종료)
+    # KBO 라인업 감시 (30분 간격, 광역)
     scheduler.add_job(
         _run_lineup_watch,
         trigger=CronTrigger(
@@ -76,7 +73,19 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (5개 작업)")
+    # KBO 경기 시작 30분 전 집중 감시 (10분 간격)
+    scheduler.add_job(
+        _run_lineup_watch_pre_game,
+        trigger=CronTrigger(
+            hour="12-20", minute="*/10",
+            timezone=settings.scheduler_timezone
+        ),
+        id="lineup_watch_pre_game",
+        name="KBO 라인업 경기 전 집중 감시",
+        replace_existing=True,
+    )
+
+    logger.info("스케줄러 작업 등록 완료 (6개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -117,3 +126,11 @@ async def _run_lineup_watch() -> None:
         await run()
     except Exception as e:
         logger.error(f"lineup_watch 실패: {e}", exc_info=True)
+
+
+async def _run_lineup_watch_pre_game() -> None:
+    try:
+        from app.pipeline.lineup_watcher import run_pre_game
+        await run_pre_game()
+    except Exception as e:
+        logger.error(f"lineup_watch_pre_game 실패: {e}", exc_info=True)

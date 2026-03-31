@@ -29,6 +29,61 @@ async def run() -> None:
     await run_for_date(today)
 
 
+async def run_pre_game() -> None:
+    """경기 시작 30분 전 이내인 미확정 경기만 집중 감시 (10분 간격 호출용)"""
+    now_kst = datetime.now(KST)
+    today = now_kst.date()
+
+    logger.info(f"경기 시작 전 집중 감시 시작 ({now_kst.strftime('%H:%M')})")
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Game).where(
+                Game.game_date == today,
+                Game.league == "KBO",
+                Game.status == "scheduled",
+                Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None),
+                Game.game_time.isnot(None),
+            )
+        )
+        games = result.scalars().all()
+
+        # 시작 30분 전 이내 경기만 필터
+        target_games = []
+        for game in games:
+            try:
+                h, m, *_ = str(game.game_time).split(":")
+                game_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+                minutes_until = (game_dt - now_kst).total_seconds() / 60
+                if 0 <= minutes_until <= 30:
+                    target_games.append(game)
+            except Exception:
+                continue
+
+        if not target_games:
+            logger.info("30분 내 시작 예정 미확정 경기 없음")
+            return
+
+        logger.info(f"{len(target_games)}경기 집중 감시 중...")
+
+        from app.collectors.lineup_collector import KBOLineupCollector
+        collector = KBOLineupCollector()
+
+        for game in target_games:
+            if not game.external_game_id:
+                continue
+            try:
+                lineup = await collector.fetch_lineup(game.external_game_id)
+                if lineup:
+                    changed = await _update_game_lineup(db, game, lineup)
+                    if changed:
+                        await _retrigger_prediction(db, game.id)
+                else:
+                    logger.info(f"game_id={game.id} 아직 라인업 미발표")
+            except Exception as e:
+                logger.warning(f"game_id={game.id} 집중 감시 실패: {e}")
+
+
 async def run_for_date(target_date: date) -> None:
     """특정 날짜 미확정 경기 라인업 체크 및 업데이트"""
     logger.info(f"라인업 감시 시작 ({target_date})")

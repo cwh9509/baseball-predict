@@ -1,0 +1,24 @@
+PLAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312WOOB0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312WOOB0&section=HIGHLIGHT' class='btn2' id='btnHighlight' style='width:65px;'>�븯�씠�씪�씠�듃</a>
+VENUE: -
+---
+PLAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312KTLT0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312KTLT0&section=HIGHLIGHT' class='btn2' id='btnHighlight' style='width:65px;'>�븯�씠�씪�씠�듃</a>
+VENUE: -
+---
+PLAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312SKHT0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312SKHT0&section=HIGHLIGHT' class='btn2' id='btnHighlight' style='width:65px;'>�븯�씠�씪�씠�듃</a>
+VENUE: -
+---
+PLAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312SSHH0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260312&gameId=20260312SSHH0&section=HIGHLIGHT' class='btn2' id='btnHighlight' style='width:65px;'>�븯�씠�씪�씠�듃</a>
+VENUE: -
+---
+PLAY: <span>LG</span><em><span class="same">5</span><span>vs</span><span class="same">5</span></em><span>NC</span>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260313&gameId=20260313LGNC0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+VENUE: 留덉궛
+---
+PLAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260313&gameId=20260313WOOB0&section=REVIEW' class='btn2 mr5' id='btnReview'>由щ럭</a>
+RELAY: <a href='/Schedule/GameCenter/Main.aspx?gameDate=20260313&gameId=20260313WOOB0&section=HIGHLIGHT' class='btn2' id='btnHighlight' style='width:65px;'>�븯�씠�씪�씠�듃</a>
+VENUE: -
+---

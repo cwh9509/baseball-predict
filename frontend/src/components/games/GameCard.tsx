@@ -50,6 +50,15 @@ export default function GameCard({ game, currentDate, league }: Props) {
           />
         )}
 
+        {/* 예상 스코어 */}
+        {game.prediction?.predicted_home_score != null && game.prediction?.predicted_away_score != null && (
+          <div className="flex justify-center mt-2 mb-1">
+            <span className="text-sm font-semibold text-gray-600 bg-gray-50 px-3 py-0.5 rounded-full border">
+              예상 {game.prediction.predicted_home_score} – {game.prediction.predicted_away_score}
+            </span>
+          </div>
+        )}
+
         {/* 하단 정보 */}
         <div className="flex items-center justify-between mt-3 text-xs">
           <span className="text-gray-400">

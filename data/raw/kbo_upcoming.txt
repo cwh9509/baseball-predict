@@ -1,0 +1,46 @@
+=== Row 60 ===
+  cell[0]: '03.28(�넗)'
+  cell[1]: '<b>14:00</b>'
+  cell[2]: '<span>KT</span><em><span>vs</span></em><span>LG</span>'
+  cell[3]: "<a href='/Schedule/GameCenter/Main.aspx?gameDate=20260328&gameId=20260328KTLG0&section=START_PIT' cl"
+  cell[4]: ''
+  cell[5]: 'S-T'
+  cell[6]: ''
+  cell[7]: '�옞�떎'
+  cell[8]: '-'
+=== Row 61 ===
+  cell[0]: '<b>14:00</b>'
+  cell[1]: '<span>KIA</span><em><span>vs</span></em><span>SSG</span>'
+  cell[2]: "<a href='/Schedule/GameCenter/Main.aspx?gameDate=20260328&gameId=20260328HTSK0&section=START_PIT' cl"
+  cell[3]: ''
+  cell[4]: 'M-T'
+  cell[5]: ''
+  cell[6]: '臾명븰'
+  cell[7]: '-'
+=== Row 62 ===
+  cell[0]: '<b>14:00</b>'
+  cell[1]: '<span>濡��뜲</span><em><span>vs</span></em><span>�궪�꽦</span>'
+  cell[2]: "<a href='/Schedule/GameCenter/Main.aspx?gameDate=20260328&gameId=20260328LTSS0&section=START_PIT' cl"
+  cell[3]: ''
+  cell[4]: 'K-2T'
+  cell[5]: ''
+  cell[6]: '���援�'
+  cell[7]: '-'
+=== Row 63 ===
+  cell[0]: '<b>14:00</b>'
+  cell[1]: '<span>�몢�궛</span><em><span>vs</span></em><span>NC</span>'
+  cell[2]: "<a href='/Schedule/GameCenter/Main.aspx?gameDate=20260328&gameId=20260328OBNC0&section=START_PIT' cl"
+  cell[3]: ''
+  cell[4]: 'SPO-T<br />KN-T<br />SS-T'
+  cell[5]: ''
+  cell[6]: '李쎌썝'
+  cell[7]: '-'
+=== Row 64 ===
+  cell[0]: '<b>14:00</b>'
+  cell[1]: '<span>�궎���</span><em><span>vs</span></em><span>�븳�솕</span>'
+  cell[2]: "<a href='/Schedule/GameCenter/Main.aspx?gameDate=20260328&gameId=20260328WOHH0&section=START_PIT' cl"
+  cell[3]: ''
+  cell[4]: 'SPO-2T<br />MS-T'
+  cell[5]: ''
+  cell[6]: '����쟾'
+  cell[7]: '-'

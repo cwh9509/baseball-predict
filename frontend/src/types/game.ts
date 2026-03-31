@@ -23,6 +23,8 @@ export interface PredictionBrief {
   predicted_winner: string
   confidence_tier: "high" | "medium" | "low"
   has_explanation: boolean
+  predicted_home_score?: number
+  predicted_away_score?: number
 }
 
 export interface Game {

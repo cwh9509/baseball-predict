@@ -34,6 +34,8 @@ class PredictionBrief(BaseModel):
     predicted_winner: str
     confidence_tier: str
     has_explanation: bool
+    predicted_home_score: Optional[int] = None
+    predicted_away_score: Optional[int] = None
 
 
 class GameResponse(BaseModel):
