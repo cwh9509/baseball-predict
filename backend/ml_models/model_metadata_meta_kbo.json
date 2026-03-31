@@ -1,6 +1,6 @@
 {
-  "version": "20260327",
+  "version": "20260331",
   "model_type": "stacking_meta",
   "league": "KBO",
-  "path": "C:\\Users\\cwh95\\baseball-predict\\backend\\ml_models\\meta-kbo-v20260327.pkl"
+  "path": "ml_models/meta-kbo-v20260331.pkl"
 }

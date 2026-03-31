@@ -241,6 +241,38 @@ class ETLRunner:
             weather_values["raw_response"] = weather.get("raw_response")
             await db.execute(pg_insert(WeatherLog).values(**weather_values).on_conflict_do_nothing())
 
+    async def refresh_weather_for_game(self, db: AsyncSession, game: "Game") -> None:
+        """단일 경기 날씨를 강제 갱신 (캐시 무시)"""
+        home_team = await self._get_team_by_short(db, game.home_team.short_name if hasattr(game, 'home_team') else None, game.league) if False else None
+
+        # Game 모델에서 직접 팀 조회
+        from app.models import Team
+        home_team_result = await db.execute(select(Team).where(Team.id == game.home_team_id))
+        home_team = home_team_result.scalar_one_or_none()
+        if not home_team:
+            return
+
+        coords = _get_team_coords(game.league, home_team.short_name)
+        if not coords:
+            return
+
+        weather = await self.weather.fetch_forecast(
+            lat=coords["lat"],
+            lon=coords["lon"],
+            game_date=game.game_date,
+            game_id=game.id,
+            force=True,
+        )
+        if not weather:
+            return
+
+        weather_values = {k: v for k, v in weather.items() if k != "raw_response"}
+        weather_values["game_id"] = game.id
+        weather_values["raw_response"] = weather.get("raw_response")
+        await db.execute(pg_insert(WeatherLog).values(**weather_values).on_conflict_do_nothing())
+        await db.commit()
+        logger.info(f"game_id={game.id} 날씨 강제 갱신 완료 ({weather.get('weather_main')}, {weather.get('precipitation_mm')}mm)")
+
     async def _get_team_by_short(
         self, db: AsyncSession, short_name: str, league: str
     ) -> Optional[Team]:

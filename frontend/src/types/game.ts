@@ -37,6 +37,7 @@ export interface Game {
   home_starter?: StarterBrief
   away_starter?: StarterBrief
   venue?: string
+  lineup_locked?: boolean
   prediction?: PredictionBrief
   weather?: WeatherBrief
 }

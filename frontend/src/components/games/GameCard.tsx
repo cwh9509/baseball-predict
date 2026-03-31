@@ -65,14 +65,21 @@ export default function GameCard({ game, currentDate, league }: Props) {
             {game.game_time ? game.game_time.slice(0, 5) : "시간 미정"}
             {game.venue && ` · ${game.venue}`}
           </span>
-          {game.prediction && (
-            <span className={cn(
-              "px-2 py-0.5 rounded-full border text-xs font-medium",
-              CONFIDENCE_COLORS[tier]
-            )}>
-              신뢰도 {CONFIDENCE_LABELS[tier]}
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {!game.lineup_locked && game.prediction && (
+              <span className="px-2 py-0.5 rounded-full border text-xs text-gray-400 border-gray-200">
+                라인업 미확정
+              </span>
+            )}
+            {game.prediction && (
+              <span className={cn(
+                "px-2 py-0.5 rounded-full border text-xs font-medium",
+                CONFIDENCE_COLORS[tier]
+              )}>
+                신뢰도 {CONFIDENCE_LABELS[tier]}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 날씨 */}

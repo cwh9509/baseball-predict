@@ -36,40 +36,11 @@ class Trainer:
 
         invalidate_elo_cache(settings.league)
 
-        X, y = await self._collect_training_data()
-        if len(X) < 100:
-            logger.warning(f"학습 데이터 부족: {len(X)}개 (최소 100개 필요)")
-            return "insufficient_data"
-
-        logger.info(f"학습 데이터: {len(X)}개 경기")
-
-        tscv = TimeSeriesSplit(n_splits=N_CV_SPLITS)
         version = datetime.now().strftime("%Y%m%d")
 
-        # ── 1. XGBoost Optuna 튜닝 ─────────────────────────────────────
-        xgb_model = await asyncio.to_thread(
-            self._tune_and_fit_xgb, X, y, tscv, version
-        )
-
-        # ── 2. LightGBM Optuna 튜닝 ────────────────────────────────────
-        lgb_model = await asyncio.to_thread(
-            self._tune_and_fit_lgb, X, y, tscv, version
-        )
-
-        # ── 3. CatBoost Optuna 튜닝 ────────────────────────────────────
-        cat_model = await asyncio.to_thread(
-            self._tune_and_fit_catboost, X, y, tscv, version
-        )
-
-        # ── 4. Stacking 메타 모델 ──────────────────────────────────────
-        meta_model = await asyncio.to_thread(
-            self._build_stacking_model, xgb_model, lgb_model, cat_model, X, y, tscv
-        )
-        save_meta_model(meta_model, version, league=settings.league)
-        logger.info("Stacking 메타 모델 저장 완료")
-
-        # ── 5. 스코어 회귀 모델 ───────────────────────────────────────
+        # ── 1. 스코어 회귀 모델 먼저 학습 ────────────────────────────
         X_score, y_home, y_away = await self._collect_score_training_data()
+        home_score_model, away_score_model = None, None
         if len(X_score) >= 50:
             logger.info(f"스코어 회귀 학습 데이터: {len(X_score)}경기")
             home_score_model, away_score_model = await asyncio.to_thread(
@@ -78,16 +49,49 @@ class Trainer:
         else:
             logger.warning(f"스코어 학습 데이터 부족: {len(X_score)}개 — 스코어 모델 건너뜀")
 
-        # ── 6. 앙상블 CV 정확도 ────────────────────────────────────────
+        # ── 2. 분류 학습 데이터 수집 (스코어 예측값 피처 추가) ────────
+        X, y = await self._collect_training_data(home_score_model, away_score_model)
+        if len(X) < 100:
+            logger.warning(f"학습 데이터 부족: {len(X)}개 (최소 100개 필요)")
+            return "insufficient_data"
+
+        logger.info(f"학습 데이터: {len(X)}개 경기 (피처 수: {X.shape[1]})")
+
+        tscv = TimeSeriesSplit(n_splits=N_CV_SPLITS)
+
+        # ── 3. XGBoost Optuna 튜닝 ─────────────────────────────────────
+        xgb_model = await asyncio.to_thread(
+            self._tune_and_fit_xgb, X, y, tscv, version
+        )
+
+        # ── 4. LightGBM Optuna 튜닝 ────────────────────────────────────
+        lgb_model = await asyncio.to_thread(
+            self._tune_and_fit_lgb, X, y, tscv, version
+        )
+
+        # ── 5. CatBoost Optuna 튜닝 ────────────────────────────────────
+        cat_model = await asyncio.to_thread(
+            self._tune_and_fit_catboost, X, y, tscv, version
+        )
+
+        # ── 6. Stacking 메타 모델 ──────────────────────────────────────
+        meta_model = await asyncio.to_thread(
+            self._build_stacking_model, xgb_model, lgb_model, cat_model, X, y, tscv
+        )
+        save_meta_model(meta_model, version, league=settings.league)
+        logger.info("Stacking 메타 모델 저장 완료")
+
+        # ── 7. 앙상블 CV 정확도 ────────────────────────────────────────
         self._log_ensemble_cv(xgb_model, lgb_model, cat_model, meta_model, X, y, tscv)
 
-        # ── 7. 피처 중요도 ─────────────────────────────────────────────
-        feature_cols = get_feature_columns(settings.league)
+        # ── 8. 피처 중요도 ─────────────────────────────────────────────
+        feature_cols = get_feature_columns(settings.league) + ["predicted_score_diff"]
         importances = xgb_model.feature_importances_
         top5 = np.argsort(importances)[::-1][:5]
         logger.info("XGBoost 상위 피처:")
         for i in top5:
-            logger.info(f"  {feature_cols[i]}: {importances[i]:.4f}")
+            if i < len(feature_cols):
+                logger.info(f"  {feature_cols[i]}: {importances[i]:.4f}")
 
         logger.info(f"모델 저장 완료: v{version}")
         return version
@@ -324,7 +328,7 @@ class Trainer:
 
         return np.array(X_rows), np.array(y_home), np.array(y_away)
 
-    async def _collect_training_data(self) -> tuple[np.ndarray, np.ndarray]:
+    async def _collect_training_data(self, home_score_model=None, away_score_model=None) -> tuple[np.ndarray, np.ndarray]:
         from sqlalchemy import select
         from app.models import Game
 
@@ -345,7 +349,19 @@ class Trainer:
                 try:
                     feature_array, _ = await build_features(db, game.id)
                     label = 1 if game.winner_team_id == game.home_team_id else 0
-                    X_rows.append(feature_array)
+
+                    # 스코어 모델 예측값을 피처로 추가
+                    score_diff = 0.0
+                    if home_score_model is not None and away_score_model is not None:
+                        try:
+                            f2d = feature_array.reshape(1, -1)
+                            pred_home = float(home_score_model.predict(f2d)[0])
+                            pred_away = float(away_score_model.predict(f2d)[0])
+                            score_diff = pred_home - pred_away
+                        except Exception:
+                            score_diff = 0.0
+
+                    X_rows.append(np.append(feature_array, score_diff))
                     y_labels.append(label)
                 except Exception as e:
                     logger.debug(f"game_id={game.id} 피처 생성 건너뜀: {e}")

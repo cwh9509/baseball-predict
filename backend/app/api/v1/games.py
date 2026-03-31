@@ -98,6 +98,7 @@ async def get_games_today(
                 away_team=TeamBrief(id=away_team.id, name=away_team.name,
                                     short_name=away_team.short_name, league=away_team.league),
                 venue=game.venue,
+                lineup_locked=bool(game.lineup_locked),
                 prediction=pred_brief,
                 weather=weather_brief,
             )

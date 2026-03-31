@@ -62,7 +62,14 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             tier === "high" ? "border-green-300" : tier === "medium" ? "border-yellow-200" : "border-gray-200"
           )}>
             <div className="flex items-center justify-between mb-4">
-              <h1 className="text-xl font-bold text-gray-900">경기 예측</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-gray-900">경기 예측</h1>
+                {!prediction.lineup && (
+                  <span className="px-2 py-0.5 rounded-full border text-xs text-amber-600 border-amber-300 bg-amber-50">
+                    라인업 확정 전
+                  </span>
+                )}
+              </div>
               <span className={cn(
                 "px-3 py-1 rounded-full border text-sm font-medium",
                 CONFIDENCE_COLORS[tier]

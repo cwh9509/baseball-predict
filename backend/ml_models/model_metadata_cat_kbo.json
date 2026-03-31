@@ -1,8 +1,8 @@
 {
-  "version": "20260327",
+  "version": "20260331",
   "model_type": "catboost",
   "league": "KBO",
-  "path": "C:\\Users\\cwh95\\baseball-predict\\backend\\ml_models\\cat-kbo-v20260327.cbm",
+  "path": "ml_models/cat-kbo-v20260331.cbm",
   "feature_columns": [
     "home_win_rate_L5",
     "home_run_diff_L5",

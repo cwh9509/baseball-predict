@@ -188,7 +188,7 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
 
 
 async def _retrigger_prediction(db: AsyncSession, game_id: int) -> None:
-    """라인업 확정 시 예측 재실행"""
+    """라인업 확정 시 날씨 갱신 후 예측 재실행"""
     try:
         from app.ml.predictor import Predictor
         from app.models import Game, Prediction
@@ -199,6 +199,14 @@ async def _retrigger_prediction(db: AsyncSession, game_id: int) -> None:
         game = game_result.scalar_one_or_none()
         if not game:
             return
+
+        # 날씨 강제 갱신 (라인업 확정 시점의 최신 날씨 반영)
+        try:
+            from app.pipeline.etl_runner import ETLRunner
+            etl = ETLRunner()
+            await etl.refresh_weather_for_game(db, game)
+        except Exception as e:
+            logger.warning(f"game_id={game_id} 날씨 갱신 실패 (예측은 계속): {e}")
 
         predictor = Predictor(league=game.league)
         result = await predictor.predict(game_id, db)

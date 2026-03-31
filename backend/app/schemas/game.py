@@ -48,6 +48,7 @@ class GameResponse(BaseModel):
     home_starter: Optional[StarterBrief] = None
     away_starter: Optional[StarterBrief] = None
     venue: Optional[str] = None
+    lineup_locked: bool = False
     prediction: Optional[PredictionBrief] = None
     weather: Optional[WeatherBrief] = None
 

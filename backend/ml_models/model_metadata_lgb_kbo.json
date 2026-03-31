@@ -1,8 +1,8 @@
 {
-  "version": "20260327",
+  "version": "20260331",
   "model_type": "lightgbm",
   "league": "KBO",
-  "path": "C:\\Users\\cwh95\\baseball-predict\\backend\\ml_models\\lgb-kbo-v20260327.txt",
+  "path": "ml_models/lgb-kbo-v20260331.txt",
   "feature_columns": [
     "home_win_rate_L5",
     "home_run_diff_L5",

@@ -108,36 +108,7 @@ class Predictor:
             logger.warning(f"game_id={game_id} 피처 생성 실패: {e}")
             return None
 
-        try:
-            feature_2d = feature_array.reshape(1, -1)
-
-            # 개별 모델 확률 수집
-            xgb_prob = _get_prob(xgb_model, feature_2d)
-            lgb_prob = _get_prob(lgb_model, feature_2d)
-            cat_prob = _get_prob(cat_model, feature_2d)
-
-            base_probs = [p for p in [xgb_prob, lgb_prob, cat_prob] if p is not None]
-
-            if not base_probs:
-                logger.error(f"예측 실패: 모든 기본 모델에서 확률 없음 (game_id={game_id})")
-                return None
-
-            # 메타 모델(Stacking)이 있으면 사용, 없으면 단순 평균
-            if meta_model is not None and len(base_probs) == 3:
-                meta_input = np.array([[xgb_prob, lgb_prob, cat_prob]], dtype=np.float32)
-                home_win_prob = float(meta_model.predict_proba(meta_input)[0][1])
-            else:
-                home_win_prob = float(np.mean(base_probs))
-
-        except Exception as e:
-            logger.error(f"예측 실행 오류 (game_id={game_id}): {e}")
-            return None
-
-        home_win_prob = max(0.01, min(0.99, home_win_prob))
-        confidence = assign_confidence_tier(home_win_prob)
-        predicted_winner_id = (
-            game.home_team_id if home_win_prob >= 0.5 else game.away_team_id
-        )
+        feature_2d = feature_array.reshape(1, -1)
 
         clean_snapshot = {
             k: (None if isinstance(v, float) and np.isnan(v) else v)
@@ -147,6 +118,7 @@ class Predictor:
         # 스코어 예측
         predicted_home_score = None
         predicted_away_score = None
+        score_diff = 0.0
         lg_key = game.league if game.league in self._score_models else "default"
         score_tuple = self._score_models.get(lg_key, (None, None, None))
         home_score_model, away_score_model, _ = score_tuple
@@ -156,8 +128,39 @@ class Predictor:
                 predicted_away_score = round(float(away_score_model.predict(feature_2d)[0]))
                 predicted_home_score = max(0, predicted_home_score)
                 predicted_away_score = max(0, predicted_away_score)
+                score_diff = float(predicted_home_score - predicted_away_score)
             except Exception as e:
                 logger.warning(f"스코어 예측 실패 (game_id={game_id}): {e}")
+
+        # 스코어 차이를 피처로 추가해 분류 모델 재입력
+        feature_2d_aug = np.append(feature_2d, [[score_diff]], axis=1)
+
+        try:
+            xgb_prob = _get_prob(xgb_model, feature_2d_aug)
+            lgb_prob = _get_prob(lgb_model, feature_2d_aug)
+            cat_prob = _get_prob(cat_model, feature_2d_aug)
+
+            base_probs = [p for p in [xgb_prob, lgb_prob, cat_prob] if p is not None]
+
+            if not base_probs:
+                logger.error(f"예측 실패: 모든 기본 모델에서 확률 없음 (game_id={game_id})")
+                return None
+
+            if meta_model is not None and len(base_probs) == 3:
+                meta_input = np.array([[xgb_prob, lgb_prob, cat_prob]], dtype=np.float32)
+                home_win_prob = float(meta_model.predict_proba(meta_input)[0][1])
+            else:
+                home_win_prob = float(np.mean(base_probs))
+
+        except Exception as e:
+            logger.error(f"스코어 반영 예측 오류 (game_id={game_id}): {e}")
+            return None
+
+        home_win_prob = max(0.01, min(0.99, home_win_prob))
+        confidence = assign_confidence_tier(home_win_prob)
+        predicted_winner_id = (
+            game.home_team_id if home_win_prob >= 0.5 else game.away_team_id
+        )
 
         return {
             "game_id": game_id,

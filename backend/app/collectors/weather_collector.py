@@ -61,11 +61,13 @@ class WeatherCollector:
         lon: float,
         game_date: date,
         game_id: int,
+        force: bool = False,
     ) -> Optional[dict]:
         cache_key = f"weather:{lat:.4f}:{lon:.4f}:{game_date.isoformat()}"
-        cached = await cache_get(cache_key)
-        if cached:
-            return cached
+        if not force:
+            cached = await cache_get(cache_key)
+            if cached:
+                return cached
 
         try:
             today = date.today()
