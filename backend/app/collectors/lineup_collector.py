@@ -83,7 +83,7 @@ class KBOLineupCollector:
                 )
 
                 ct = resp.headers.get("content-type", "") or ""
-                logger.debug(
+                logger.info(
                     "KBO WS POST gameId=%s status_code=%s content-type=%r",
                     game_id,
                     resp.status_code,
@@ -110,7 +110,7 @@ class KBOLineupCollector:
                         fallback_reason = f"ws json parse failed ({e.__class__.__name__})"
 
                 # 4) 동일 client로 HTML 폴백
-                logger.debug(
+                logger.info(
                     "KBO WS fallback to HTML gameId=%s reason=%s",
                     game_id,
                     fallback_reason,
@@ -127,9 +127,34 @@ class KBOLineupCollector:
                     html_text = html_resp.content.decode("cp949", errors="replace")
 
                 soup = BeautifulSoup(html_text, "lxml")
-                return self._parse_html_lineup(soup)
+                # HTML이 실제로 파싱 가능한 구조인지 빠르게 확인용
+                lineup_tables = (
+                    soup.find_all("table", class_=re.compile(r"bat.*order|lineup|tBat", re.I))
+                    or soup.find_all("table", id=re.compile(r"tblLineup|tblBat", re.I))
+                )
+                pitcher_areas = soup.find_all(class_=re.compile(r"pitcher|sp_name|starter", re.I))
+                logger.info(
+                    "KBO HTML pre-parse gameId=%s lineup_tables=%d pitcher_areas=%d",
+                    game_id,
+                    len(lineup_tables),
+                    len(pitcher_areas),
+                )
+
+                parsed = self._parse_html_lineup(soup)
+                if parsed:
+                    logger.info(
+                        "KBO HTML parsed gameId=%s home_starter=%r away_starter=%r home_lineup=%d away_lineup=%d",
+                        game_id,
+                        parsed.get("home_starter"),
+                        parsed.get("away_starter"),
+                        len(parsed.get("home_lineup") or []),
+                        len(parsed.get("away_lineup") or []),
+                    )
+                else:
+                    logger.warning("KBO HTML parse returned None gameId=%s", game_id)
+                return parsed
         except Exception as e:
-            logger.debug(f"KBO 라인업 WS+HTML 실패 ({game_id}): {e}")
+            logger.warning(f"KBO 라인업 WS+HTML 실패 ({game_id}): {e}")
             return None
 
     def _fetch_from_ws(self, game_id: str) -> Optional[dict]:
