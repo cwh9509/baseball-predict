@@ -31,16 +31,23 @@ class TeamBattingStatIn(BaseModel):
     wrc_plus: float
     k_rate: float
 
+class TeamBullpenStatIn(BaseModel):
+    team_short: str
+    bullpen_era: float
+    bullpen_whip: float
+    bullpen_count: int = 0
+
 class UploadStatsPayload(BaseModel):
     season: int
     pitchers: List[PitcherStatIn] = []
     team_batting: List[TeamBattingStatIn] = []
+    team_bullpen: List[TeamBullpenStatIn] = []
 
 
 @router.post("/upload-stats")
 async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(get_db)):
     """로컬에서 수집한 KBO 스탯을 DB에 저장 (upsert)"""
-    from app.models.kbo_stats import KboPitcherStat, KboTeamBattingStat
+    from app.models.kbo_stats import KboPitcherStat, KboTeamBattingStat, KboTeamBullypenStat
 
     season = payload.season
 
@@ -68,14 +75,41 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
             )
             await db.execute(stmt)
 
+    # 팀 불펜 upsert
+    if payload.team_bullpen:
+        for b in payload.team_bullpen:
+            stmt = insert(KboTeamBullypenStat).values(
+                season=season, team_short=b.team_short,
+                bullpen_era=b.bullpen_era, bullpen_whip=b.bullpen_whip, bullpen_count=b.bullpen_count,
+            ).on_conflict_do_update(
+                constraint="uq_kbo_team_bullpen",
+                set_={"bullpen_era": b.bullpen_era, "bullpen_whip": b.bullpen_whip, "bullpen_count": b.bullpen_count},
+            )
+            await db.execute(stmt)
+
     await db.commit()
-    logger.info(f"스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, 팀타선={len(payload.team_batting)}")
+    logger.info(f"스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, 팀타선={len(payload.team_batting)}, 불펜={len(payload.team_bullpen)}")
     return {
         "status": "ok",
         "season": season,
         "pitchers_upserted": len(payload.pitchers),
         "team_batting_upserted": len(payload.team_batting),
+        "team_bullpen_upserted": len(payload.team_bullpen),
     }
+
+
+@router.post("/retrain")
+async def trigger_retrain():
+    """모델 수동 재학습 트리거"""
+    import asyncio
+
+    async def _run():
+        from app.tasks.model_retrain import run
+        await run()
+
+    asyncio.create_task(_run())
+    logger.info("수동 재학습 트리거")
+    return {"status": "started"}
 
 
 @router.post("/collect")

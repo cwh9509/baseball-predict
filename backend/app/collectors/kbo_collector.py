@@ -720,3 +720,121 @@ class KBOCollector(BaseCollector):
         if total_ip == 0:
             return None
         return sum(p.era * p.ip for p in top5) / total_ip
+
+    async def fetch_team_bullpen_stats(self, team_short: str, season: int) -> Optional[dict]:
+        """팀 불펜 스탯 (GR > GS 투수들의 IP 가중 평균 ERA/WHIP)"""
+        return await asyncio.to_thread(self._fetch_team_bullpen_sync, team_short, season)
+
+    def _fetch_team_bullpen_sync(self, team_short: str, season: int) -> Optional[dict]:
+        from bs4 import BeautifulSoup
+        from pathlib import Path
+        import json, time
+
+        cache_path = Path(f"data/raw/kbo_bullpen_stats_{season}.json")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_ttl = 7 * 24 * 3600
+
+        # 캐시 로드
+        all_bullpen: dict = {}
+        if cache_path.exists():
+            expired = (time.time() - cache_path.stat().st_mtime) > cache_ttl
+            if not expired:
+                try:
+                    all_bullpen = json.loads(cache_path.read_text(encoding="utf-8"))
+                    return all_bullpen.get(team_short)
+                except Exception:
+                    cache_path.unlink(missing_ok=True)
+
+        base_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        }
+
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
+                if not self._statiz_login(client):
+                    return None
+
+                resp = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year={season}&ipp=500")
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "lxml")
+                table = soup.find("table")
+                if not table:
+                    return None
+
+                rows = table.find_all("tr")
+                if len(rows) < 3:
+                    return None
+
+                header_cells = rows[0].find_all(["th", "td"])
+                headers = [h.get_text(strip=True) for h in header_cells]
+                idx = {h: i for i, h in enumerate(headers)}
+
+                i_name  = idx.get("Name", 1)
+                i_team  = idx.get("Team", 2)
+                i_gs    = idx.get("GS",   5)
+                i_gr    = idx.get("GR",   6)
+                i_ip    = idx.get("IP",  14)
+                i_era   = idx.get("ERA", 30)
+                i_whip  = idx.get("WHIP",35)
+
+                # 팀별 불펜 투수 수집
+                team_relievers: dict[str, list] = {}
+
+                for tr in rows[1:]:
+                    raw_cells = tr.find_all(["td", "th"])
+                    cells = [td.get_text(strip=True) for td in raw_cells]
+                    if not cells or not cells[0].isdigit():
+                        continue
+                    if len(cells) < max(i_era, i_whip) + 1:
+                        continue
+
+                    try:
+                        gs = int(cells[i_gs] or 0)
+                        gr = int(cells[i_gr] or 0)
+                        if gr <= gs:  # 선발이 더 많으면 스킵
+                            continue
+
+                        ip = self._parse_innings(cells[i_ip])
+                        if ip < 0.1:
+                            continue
+
+                        # 팀 코드 추출
+                        t_short = ""
+                        if i_team < len(raw_cells):
+                            img = raw_cells[i_team].find("img")
+                            if img:
+                                m = re.search(r"/(\d+)\.svg", img.get("src", ""))
+                                if m:
+                                    t_short = STATIZ_TEAM_CODE_TO_SHORT.get(m.group(1), "")
+                        if not t_short:
+                            t_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
+                        if not t_short:
+                            continue
+
+                        era_s  = cells[i_era]
+                        whip_s = cells[i_whip]
+                        era  = float(era_s)  if era_s  not in ("-", "", None) else 4.50
+                        whip = float(whip_s) if whip_s not in ("-", "", None) else 1.35
+
+                        team_relievers.setdefault(t_short, []).append({"era": era, "whip": whip, "ip": ip})
+                    except (ValueError, IndexError):
+                        continue
+
+                # 팀별 IP 가중 평균
+                for t, relievers in team_relievers.items():
+                    total_ip = sum(r["ip"] for r in relievers)
+                    if total_ip > 0:
+                        all_bullpen[t] = {
+                            "bullpen_era":  round(sum(r["era"]  * r["ip"] for r in relievers) / total_ip, 2),
+                            "bullpen_whip": round(sum(r["whip"] * r["ip"] for r in relievers) / total_ip, 2),
+                            "bullpen_count": len(relievers),
+                        }
+
+                # 캐시 저장
+                cache_path.write_text(json.dumps(all_bullpen, ensure_ascii=False), encoding="utf-8")
+                return all_bullpen.get(team_short)
+
+        except Exception as e:
+            logger.error(f"KBO 불펜 스탯 수집 실패 ({team_short}, {season}): {e}")
+            return None

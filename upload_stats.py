@@ -48,7 +48,18 @@ async def collect_and_upload(backend_url: str, season: int):
         else:
             logger.warning(f"  {team_short}: 타선 스탯 없음")
 
-    if not pitchers and not team_batting:
+    # ── 팀 불펜 스탯 수집 ──────────────────────────────────
+    team_bullpen = []
+    logger.info("팀 불펜 스탯 수집 중...")
+    for team_short in KBO_TEAMS:
+        stats = await collector.fetch_team_bullpen_stats(team_short, season)
+        if stats:
+            team_bullpen.append({"team_short": team_short, **stats})
+            logger.info(f"  {team_short}: 불펜ERA={stats['bullpen_era']:.2f}, WHIP={stats['bullpen_whip']:.2f}, 투수수={stats['bullpen_count']}")
+        else:
+            logger.warning(f"  {team_short}: 불펜 스탯 없음")
+
+    if not pitchers and not team_batting and not team_bullpen:
         logger.error("수집된 데이터가 없습니다. 종료.")
         return
 
@@ -67,6 +78,7 @@ async def collect_and_upload(backend_url: str, season: int):
             for p in pitchers
         ],
         "team_batting": team_batting,
+        "team_bullpen": team_bullpen,
     }
 
     upload_url = f"{backend_url.rstrip('/')}/api/v1/admin/upload-stats"
@@ -78,7 +90,8 @@ async def collect_and_upload(backend_url: str, season: int):
             result = resp.json()
             logger.info(
                 f"업로드 완료: 투수={result['pitchers_upserted']}명, "
-                f"팀타선={result['team_batting_upserted']}팀"
+                f"팀타선={result['team_batting_upserted']}팀, "
+                f"불펜={result['team_bullpen_upserted']}팀"
             )
         else:
             logger.error(f"업로드 실패: {resp.status_code} — {resp.text[:200]}")

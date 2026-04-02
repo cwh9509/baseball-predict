@@ -22,6 +22,20 @@ class KboPitcherStat(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class KboTeamBullypenStat(Base):
+    """statiz에서 수집한 KBO 팀 불펜 스탯 (로컬에서 업로드)"""
+    __tablename__ = "kbo_team_bullpen_stats"
+    __table_args__ = (UniqueConstraint("season", "team_short", name="uq_kbo_team_bullpen"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    team_short: Mapped[str] = mapped_column(String(20), nullable=False)
+    bullpen_era: Mapped[float] = mapped_column(Float, nullable=False)
+    bullpen_whip: Mapped[float] = mapped_column(Float, nullable=False)
+    bullpen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class KboTeamBattingStat(Base):
     """statiz에서 수집한 KBO 팀 타선 스탯 (로컬에서 업로드)"""
     __tablename__ = "kbo_team_batting_stats"

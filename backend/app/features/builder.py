@@ -77,9 +77,10 @@ _PITCHER_BATTER_COLUMNS = [
     "lineup_ops_diff",
 ]
 
-# KBO 팀 로테이션 ERA (개인 선발 정보 충분히 쌓이면 sp_era_indiv 추가 예정)
+# KBO 팀 로테이션 ERA + 불펜 ERA
 _KBO_ROTATION_COLUMNS = [
     "home_rotation_era", "away_rotation_era", "rotation_era_diff",
+    "home_bullpen_era", "away_bullpen_era", "bullpen_era_diff",
 ]
 
 # KBO: 팀 폼 + 팀 로테이션 ERA + 날씨 + 구장
@@ -137,6 +138,8 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     away_sp_era_indiv = None
     home_team_obj = None
     away_team_obj = None
+    home_bullpen_era = None
+    away_bullpen_era = None
     if league in ("KBO", "NPB"):
         home_team = await db.execute(select(Team).where(Team.id == game.home_team_id))
         home_team_obj = home_team.scalar_one_or_none()
@@ -146,7 +149,6 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
             home_rotation_era = await get_team_rotation_era(home_team_obj.short_name, league, season, db=db)
         if away_team_obj:
             away_rotation_era = await get_team_rotation_era(away_team_obj.short_name, league, season, db=db)
-        # KBO 개인 선발투수 ERA (starter_name 있을 때)
         if league == "KBO":
             if home_team_obj and game.home_starter_name:
                 home_sp_era_indiv = await get_kbo_starter_era(
@@ -156,6 +158,11 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
                 away_sp_era_indiv = await get_kbo_starter_era(
                     game.away_starter_name, away_team_obj.short_name, season, db=db
                 )
+            # 불펜 ERA
+            if home_team_obj:
+                home_bullpen_era = await _get_kbo_bullpen_era(db, home_team_obj.short_name, season)
+            if away_team_obj:
+                away_bullpen_era = await _get_kbo_bullpen_era(db, away_team_obj.short_name, season)
 
     # --- 피처 수집 (병렬 가능하지만 단순화를 위해 순차 실행) ---
     home_form = await get_team_form_features(
@@ -253,6 +260,10 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "home_rotation_era": home_rotation_era,
         "away_rotation_era": away_rotation_era,
         "rotation_era_diff": _safe_diff(home_rotation_era, away_rotation_era),
+        # KBO 팀 불펜 ERA
+        "home_bullpen_era": home_bullpen_era,
+        "away_bullpen_era": away_bullpen_era,
+        "bullpen_era_diff": _safe_diff(home_bullpen_era, away_bullpen_era),
         # KBO 개인 선발투수 ERA (starter_name 있을 때만 값, 없으면 NaN)
         "home_sp_era_indiv": home_sp_era_indiv,
         "away_sp_era_indiv": away_sp_era_indiv,
@@ -303,6 +314,21 @@ def _to_float(val) -> float:
         return float(val)
     except (TypeError, ValueError):
         return float("nan")
+
+
+async def _get_kbo_bullpen_era(db: AsyncSession, team_short: str, season: int) -> Optional[float]:
+    """DB에서 팀 불펜 ERA 조회 (현 시즌 없으면 직전 시즌 폴백)"""
+    from app.models.kbo_stats import KboTeamBullypenStat
+    from sqlalchemy import and_
+    for s in [season, season - 1]:
+        row = (await db.execute(
+            select(KboTeamBullypenStat).where(
+                and_(KboTeamBullypenStat.team_short == team_short, KboTeamBullypenStat.season == s)
+            )
+        )).scalar_one_or_none()
+        if row:
+            return row.bullpen_era
+    return None
 
 
 async def _get_pitcher_throws(db: AsyncSession, pitcher_id) -> Optional[str]:
