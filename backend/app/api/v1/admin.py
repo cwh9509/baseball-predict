@@ -189,6 +189,91 @@ async def trigger_lineup(target_date: str = Query(default=None)):
     return {"status": "started", "date": str(d)}
 
 
+class LineupPlayerIn(BaseModel):
+    order: int
+    name: str
+    position: str = ""
+
+class ManualGameLineupIn(BaseModel):
+    home_team: str   # 팀 short (예: "LG", "KIA")
+    away_team: str
+    home_starter: Optional[str] = None
+    away_starter: Optional[str] = None
+    home_lineup: List[LineupPlayerIn] = []
+    away_lineup: List[LineupPlayerIn] = []
+
+class ManualLineupPayload(BaseModel):
+    date: str   # "2026-04-02"
+    games: List[ManualGameLineupIn]
+
+
+@router.post("/lineup/manual")
+async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends(get_db)):
+    """수동 라인업 직접 입력 → DB 즉시 반영 + 예측 재실행"""
+    from datetime import datetime, timezone
+    from sqlalchemy import select, update
+    from app.models import Game
+
+    try:
+        d = datetime.strptime(payload.date, "%Y-%m-%d").date()
+    except ValueError:
+        return {"error": "date 형식 오류 (YYYY-MM-DD)"}
+
+    results = []
+    for g in payload.games:
+        # 게임 조회
+        stmt = select(Game).where(
+            Game.game_date == d,
+            Game.league == "KBO",
+            Game.home_team_short == g.home_team,
+            Game.away_team_short == g.away_team,
+        )
+        row = (await db.execute(stmt)).scalar_one_or_none()
+        if not row:
+            results.append({"home": g.home_team, "away": g.away_team, "status": "not_found"})
+            continue
+
+        now = datetime.now(timezone.utc)
+        updates: dict = {"updated_at": now}
+        if g.home_starter:
+            updates["home_starter_name"] = g.home_starter
+        if g.away_starter:
+            updates["away_starter_name"] = g.away_starter
+        if g.home_lineup:
+            updates["home_lineup_json"] = [p.model_dump() for p in g.home_lineup]
+        if g.away_lineup:
+            updates["away_lineup_json"] = [p.model_dump() for p in g.away_lineup]
+
+        final_home_sp = g.home_starter or row.home_starter_name
+        final_away_sp = g.away_starter or row.away_starter_name
+        if final_home_sp and final_away_sp:
+            updates["lineup_locked"] = True
+            updates["lineup_locked_at"] = now
+
+        await db.execute(update(Game).where(Game.id == row.id).values(**updates))
+        await db.commit()
+
+        # 예측 재실행
+        try:
+            from app.pipeline.lineup_watcher import _retrigger_prediction
+            await _retrigger_prediction(db, row.id)
+            pred_status = "predicted"
+        except Exception as e:
+            pred_status = f"predict_failed: {e}"
+
+        results.append({
+            "game_id": row.id,
+            "home": g.home_team,
+            "away": g.away_team,
+            "home_starter": g.home_starter,
+            "away_starter": g.away_starter,
+            "lineup_locked": updates.get("lineup_locked", False),
+            "status": pred_status,
+        })
+
+    return {"date": payload.date, "results": results}
+
+
 @router.post("/collect-results")
 async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""
