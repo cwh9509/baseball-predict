@@ -10,6 +10,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Player
+from app.models.kbo_stats import KboPitcherStat
 
 logger = logging.getLogger(__name__)
 
@@ -23,37 +24,47 @@ async def get_kbo_starter_era(
     name: Optional[str],
     team_short: str,
     season: int,
+    db: Optional[AsyncSession] = None,
 ) -> Optional[float]:
-    """KBO 선발투수 개인 ERA (statiz 캐시에서 이름으로 조회)
-    이름 미지정 또는 매핑 실패 시 None 반환 → 팀 로테이션 ERA 폴백
+    """KBO 선발투수 개인 ERA — DB에서 조회 (로컬 업로드된 statiz 스탯)
+    이름 미지정 또는 데이터 없으면 None 반환 → 팀 로테이션 ERA 폴백
     현 시즌 데이터 없으면 직전 시즌으로 폴백
     """
     if not name:
         return None
-    from app.collectors.kbo_collector import KBOCollector
-    collector = KBOCollector()
-    for s in [season, season - 1]:
-        all_stats = await collector.fetch_pitcher_stats_season(s)
-        for ps in all_stats:
-            if ps.name == name and ps.team_short == team_short:
-                return ps.era
-        for ps in all_stats:
-            if ps.name == name:
-                return ps.era
+    if db is not None:
+        from app.models.kbo_stats import KboPitcherStat
+        for s in [season, season - 1]:
+            # 이름+팀 일치 우선, 이름만 일치 차선
+            for extra_cond in [
+                and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),
+                and_(KboPitcherStat.name == name, KboPitcherStat.season == s),
+            ]:
+                row = (await db.execute(select(KboPitcherStat).where(extra_cond))).scalar_one_or_none()
+                if row:
+                    return row.era
     return None
 
 
-async def get_team_rotation_era(team_short: str, league: str, season: int) -> Optional[float]:
+async def get_team_rotation_era(team_short: str, league: str, season: int, db: Optional[AsyncSession] = None) -> Optional[float]:
     """팀 로테이션 ERA (KBO/NPB 전용 — 개별 선발 정보 없을 때 사용)
-    현 시즌 데이터 없으면 직전 시즌으로 폴백 (시즌 초반 대응)
+    KBO: DB에서 팀 투수들 IP 가중 평균 ERA
+    현 시즌 데이터 없으면 직전 시즌으로 폴백
     """
-    if league == "KBO":
-        from app.collectors.kbo_collector import KBOCollector
-        collector = KBOCollector()
-        era = await collector.fetch_team_rotation_era(team_short, season)
-        if era is None:
-            era = await collector.fetch_team_rotation_era(team_short, season - 1)
-        return era
+    if league == "KBO" and db is not None:
+        from app.models.kbo_stats import KboPitcherStat
+        for s in [season, season - 1]:
+            rows = (await db.execute(
+                select(KboPitcherStat).where(
+                    and_(KboPitcherStat.team_short == team_short, KboPitcherStat.season == s)
+                )
+            )).scalars().all()
+            if rows:
+                total_ip = sum(r.ip for r in rows)
+                if total_ip > 0:
+                    return sum(r.era * r.ip for r in rows) / total_ip
+                return sum(r.era for r in rows) / len(rows)
+        return None
     if league == "NPB":
         from app.collectors.npb_collector import NPBCollector
         collector = NPBCollector()

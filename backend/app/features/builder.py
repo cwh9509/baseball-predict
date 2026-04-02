@@ -143,18 +143,18 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         away_team = await db.execute(select(Team).where(Team.id == game.away_team_id))
         away_team_obj = away_team.scalar_one_or_none()
         if home_team_obj:
-            home_rotation_era = await get_team_rotation_era(home_team_obj.short_name, league, season)
+            home_rotation_era = await get_team_rotation_era(home_team_obj.short_name, league, season, db=db)
         if away_team_obj:
-            away_rotation_era = await get_team_rotation_era(away_team_obj.short_name, league, season)
+            away_rotation_era = await get_team_rotation_era(away_team_obj.short_name, league, season, db=db)
         # KBO 개인 선발투수 ERA (starter_name 있을 때)
         if league == "KBO":
             if home_team_obj and game.home_starter_name:
                 home_sp_era_indiv = await get_kbo_starter_era(
-                    game.home_starter_name, home_team_obj.short_name, season
+                    game.home_starter_name, home_team_obj.short_name, season, db=db
                 )
             if away_team_obj and game.away_starter_name:
                 away_sp_era_indiv = await get_kbo_starter_era(
-                    game.away_starter_name, away_team_obj.short_name, season
+                    game.away_starter_name, away_team_obj.short_name, season, db=db
                 )
 
     # --- 피처 수집 (병렬 가능하지만 단순화를 위해 순차 실행) ---

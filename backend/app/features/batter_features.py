@@ -17,22 +17,30 @@ KBO_BATTING_AVG = {"ops": 0.740, "wrc_plus": 100, "k_rate": 0.200}
 
 
 async def _get_kbo_team_batting(team_id: int, season: int, db: AsyncSession) -> Optional[dict]:
-    """KBO 팀 타선 스탯을 statiz에서 가져옴"""
+    """KBO 팀 타선 스탯을 DB에서 조회 (로컬에서 업로드된 statiz 스탯)
+    현 시즌 없으면 직전 시즌 폴백
+    """
     try:
-        from sqlalchemy import select
+        from sqlalchemy import select, and_
         from app.models import Team
-        from app.collectors.kbo_collector import KBOCollector
+        from app.models.kbo_stats import KboTeamBattingStat
 
         team_result = await db.execute(select(Team).where(Team.id == team_id))
         team = team_result.scalar_one_or_none()
         if not team:
             return None
 
-        collector = KBOCollector()
-        stats = await collector.fetch_team_batting_stats(team.short_name, season)
-        return stats
+        for s in [season, season - 1]:
+            row = (await db.execute(
+                select(KboTeamBattingStat).where(
+                    and_(KboTeamBattingStat.team_short == team.short_name, KboTeamBattingStat.season == s)
+                )
+            )).scalar_one_or_none()
+            if row:
+                return {"ops": row.ops, "wrc_plus": row.wrc_plus, "k_rate": row.k_rate}
+        return None
     except Exception as e:
-        logger.debug(f"KBO 타선 스탯 조회 실패 (team_id={team_id}): {e}")
+        logger.debug(f"KBO 타선 스탯 DB 조회 실패 (team_id={team_id}): {e}")
         return None
 
 

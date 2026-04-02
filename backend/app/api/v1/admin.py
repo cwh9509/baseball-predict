@@ -3,11 +3,79 @@
 """
 import logging
 from datetime import date
+from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# ── 스탯 업로드 스키마 ──────────────────────────────────────
+class PitcherStatIn(BaseModel):
+    name: str
+    team_short: str
+    era: float
+    whip: float
+    k9: float
+    ip: float
+
+class TeamBattingStatIn(BaseModel):
+    team_short: str
+    ops: float
+    wrc_plus: float
+    k_rate: float
+
+class UploadStatsPayload(BaseModel):
+    season: int
+    pitchers: List[PitcherStatIn] = []
+    team_batting: List[TeamBattingStatIn] = []
+
+
+@router.post("/upload-stats")
+async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(get_db)):
+    """로컬에서 수집한 KBO 스탯을 DB에 저장 (upsert)"""
+    from app.models.kbo_stats import KboPitcherStat, KboTeamBattingStat
+
+    season = payload.season
+
+    # 투수 upsert
+    if payload.pitchers:
+        for p in payload.pitchers:
+            stmt = insert(KboPitcherStat).values(
+                season=season, name=p.name, team_short=p.team_short,
+                era=p.era, whip=p.whip, k9=p.k9, ip=p.ip,
+            ).on_conflict_do_update(
+                constraint="uq_kbo_pitcher",
+                set_={"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip},
+            )
+            await db.execute(stmt)
+
+    # 팀 타선 upsert
+    if payload.team_batting:
+        for t in payload.team_batting:
+            stmt = insert(KboTeamBattingStat).values(
+                season=season, team_short=t.team_short,
+                ops=t.ops, wrc_plus=t.wrc_plus, k_rate=t.k_rate,
+            ).on_conflict_do_update(
+                constraint="uq_kbo_team_batting",
+                set_={"ops": t.ops, "wrc_plus": t.wrc_plus, "k_rate": t.k_rate},
+            )
+            await db.execute(stmt)
+
+    await db.commit()
+    logger.info(f"스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, 팀타선={len(payload.team_batting)}")
+    return {
+        "status": "ok",
+        "season": season,
+        "pitchers_upserted": len(payload.pitchers),
+        "team_batting_upserted": len(payload.team_batting),
+    }
 
 
 @router.post("/collect")
