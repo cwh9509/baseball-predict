@@ -41,7 +41,7 @@ class Trainer:
         # ── 1. 스코어 회귀 모델 먼저 학습 ────────────────────────────
         X_score, y_home, y_away = await self._collect_score_training_data()
         home_score_model, away_score_model = None, None
-        if len(X_score) >= 50:
+        if len(X_score) >= 15:
             logger.info(f"스코어 회귀 학습 데이터: {len(X_score)}경기")
             home_score_model, away_score_model = await asyncio.to_thread(
                 self._train_score_models, X_score, y_home, y_away, version
@@ -51,8 +51,8 @@ class Trainer:
 
         # ── 2. 분류 학습 데이터 수집 (스코어 예측값 피처 추가) ────────
         X, y = await self._collect_training_data(home_score_model, away_score_model)
-        if len(X) < 100:
-            logger.warning(f"학습 데이터 부족: {len(X)}개 (최소 100개 필요)")
+        if len(X) < 15:
+            logger.warning(f"학습 데이터 부족: {len(X)}개 (최소 15개 필요)")
             return "insufficient_data"
 
         logger.info(f"학습 데이터: {len(X)}개 경기 (피처 수: {X.shape[1]})")
