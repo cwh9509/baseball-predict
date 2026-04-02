@@ -54,6 +54,7 @@ class PitcherStatsRaw:
     wins: int
     losses: int
     last_appearance_date: Optional[date] = None
+    handedness: Optional[str] = None   # "L" or "R"
 
 
 @dataclass

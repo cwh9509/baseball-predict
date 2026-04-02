@@ -59,6 +59,22 @@ async def collect_and_upload(backend_url: str, season: int):
         else:
             logger.warning(f"  {team_short}: 불펜 스탯 없음")
 
+    # ── 팀 타선 좌우 스플릿 수집 ─────────────────────────
+    team_batting_splits = []
+    logger.info("팀 타선 좌우 스플릿 수집 중...")
+    split_data = await collector.fetch_team_batting_split_stats(season)
+    for team_short, splits in split_data.items():
+        for split_key, s in splits.items():
+            team_batting_splits.append({
+                "team_short": team_short,
+                "split": split_key,
+                "ops": s["ops"],
+                "pa": s["pa"],
+            })
+            logger.info(f"  {team_short} {split_key}: OPS={s['ops']:.3f} (PA={s['pa']})")
+    if not split_data:
+        logger.warning("타선 스플릿 수집 실패 — statiz ph 파라미터 확인 필요")
+
     if not pitchers and not team_batting and not team_bullpen:
         logger.error("수집된 데이터가 없습니다. 종료.")
         return
@@ -74,11 +90,13 @@ async def collect_and_upload(backend_url: str, season: int):
                 "whip": p.whip,
                 "k9": p.k9,
                 "ip": p.ip,
+                "handedness": p.handedness,
             }
             for p in pitchers
         ],
         "team_batting": team_batting,
         "team_bullpen": team_bullpen,
+        "team_batting_splits": team_batting_splits,
     }
 
     upload_url = f"{backend_url.rstrip('/')}/api/v1/admin/upload-stats"
@@ -91,7 +109,8 @@ async def collect_and_upload(backend_url: str, season: int):
             logger.info(
                 f"업로드 완료: 투수={result['pitchers_upserted']}명, "
                 f"팀타선={result['team_batting_upserted']}팀, "
-                f"불펜={result['team_bullpen_upserted']}팀"
+                f"불펜={result['team_bullpen_upserted']}팀, "
+                f"스플릿={result['splits_upserted']}건"
             )
         else:
             logger.error(f"업로드 실패: {resp.status_code} — {resp.text[:200]}")

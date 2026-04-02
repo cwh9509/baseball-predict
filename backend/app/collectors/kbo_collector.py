@@ -451,6 +451,7 @@ class KBOCollector(BaseCollector):
                 # 컬럼 인덱스 (헤더명 우선, 위치 폴백)
                 i_name  = idx.get("Name",  1)
                 i_team  = idx.get("Team",  2)
+                i_hand  = idx.get("투/타", idx.get("투타", 3))   # 투구방향: 좌우
                 i_ip    = idx.get("IP",   14)
                 i_so    = idx.get("SO",   26)
                 i_era   = idx.get("ERA",  30)
@@ -458,7 +459,7 @@ class KBOCollector(BaseCollector):
 
                 logger.info(
                     f"statiz 컬럼 인덱스: name={i_name} team={i_team} "
-                    f"ip={i_ip} so={i_so} era={i_era} whip={i_whip}"
+                    f"hand={i_hand} ip={i_ip} so={i_so} era={i_era} whip={i_whip}"
                 )
 
                 for tr in rows[1:]:  # rows[1] = WAR sub-header, rows[2+] = data
@@ -500,6 +501,15 @@ class KBOCollector(BaseCollector):
                             so = 0.0
                         k9 = (so / ip * 9) if ip > 0 else 7.5
 
+                        # 투구 방향 파싱: "우우"→R, "좌우"→L, "우좌"→R 등 (첫 글자=투구손)
+                        handedness = None
+                        if i_hand < len(cells) and cells[i_hand]:
+                            h = cells[i_hand]
+                            if h.startswith("좌"):
+                                handedness = "L"
+                            elif h.startswith("우"):
+                                handedness = "R"
+
                         results.append(PitcherStatsRaw(
                             external_id=f"kbo_{season}_{team_short}_{name}",
                             name=name,
@@ -511,6 +521,7 @@ class KBOCollector(BaseCollector):
                             ip=ip,
                             wins=0,
                             losses=0,
+                            handedness=handedness,
                         ))
                     except (IndexError, ValueError, KeyError):
                         continue
@@ -838,3 +849,129 @@ class KBOCollector(BaseCollector):
         except Exception as e:
             logger.error(f"KBO 불펜 스탯 수집 실패 ({team_short}, {season}): {e}")
             return None
+
+    async def fetch_team_batting_split_stats(self, season: int) -> dict:
+        """팀별 vs LHP / vs RHP 타선 OPS 수집
+        statiz split 파라미터: ph=1(좌완 상대), ph=2(우완 상대)
+        반환: {"삼성": {"vs_lhp": {"ops": 0.710, "pa": 350}, "vs_rhp": {...}}, ...}
+        """
+        return await asyncio.to_thread(self._fetch_batting_split_sync, season)
+
+    def _fetch_batting_split_sync(self, season: int) -> dict:
+        from bs4 import BeautifulSoup
+        from pathlib import Path
+        import json, time
+
+        cache_path = Path(f"data/raw/kbo_batting_split_{season}.json")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_ttl = 7 * 24 * 3600
+
+        if cache_path.exists():
+            if (time.time() - cache_path.stat().st_mtime) < cache_ttl:
+                try:
+                    return json.loads(cache_path.read_text(encoding="utf-8"))
+                except Exception:
+                    cache_path.unlink(missing_ok=True)
+
+        base_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        }
+
+        all_splits: dict = {}
+
+        # ph=1: vs 좌완, ph=2: vs 우완
+        split_map = {"vs_lhp": "1", "vs_rhp": "2"}
+
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
+                if not self._statiz_login(client):
+                    logger.warning("statiz 로그인 실패 — 타선 스플릿 수집 불가")
+                    return {}
+
+                for split_key, ph_val in split_map.items():
+                    url = (
+                        f"{STATIZ_STATS_URL}?m=main&m2=batting"
+                        f"&year={season}&ipp=500&ph={ph_val}"
+                    )
+                    try:
+                        resp = client.get(url)
+                        resp.raise_for_status()
+                    except Exception as e:
+                        logger.warning(f"타선 스플릿 수집 실패 ({split_key}): {e}")
+                        continue
+
+                    soup = BeautifulSoup(resp.text, "lxml")
+                    table = soup.find("table")
+                    if not table:
+                        logger.warning(f"statiz: 타선 스플릿 테이블 없음 ({split_key})")
+                        continue
+
+                    rows = table.find_all("tr")
+                    if len(rows) < 3:
+                        continue
+
+                    header_cells = rows[0].find_all(["th", "td"])
+                    headers = [h.get_text(strip=True) for h in header_cells]
+                    idx = {h: i for i, h in enumerate(headers)}
+
+                    i_name = idx.get("Name", 1)
+                    i_team = idx.get("Team", 2)
+                    i_pa   = idx.get("PA", 7)
+                    i_biyul = idx.get("비율", 26)
+                    i_ops = i_biyul + 3
+
+                    # 팀별 PA 가중 OPS 집계
+                    team_data: dict[str, dict] = {}
+                    for tr in rows[1:]:
+                        raw_cells = tr.find_all(["td", "th"])
+                        cells = [td.get_text(strip=True) for td in raw_cells]
+                        if not cells or not cells[0].isdigit():
+                            continue
+                        if len(cells) < i_ops + 1:
+                            continue
+                        try:
+                            team_short = ""
+                            if i_team < len(raw_cells):
+                                img = raw_cells[i_team].find("img")
+                                if img:
+                                    m = re.search(r"/(\d+)\.svg", img.get("src", ""))
+                                    if m:
+                                        team_short = STATIZ_TEAM_CODE_TO_SHORT.get(m.group(1), "")
+                            if not team_short:
+                                team_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
+                            if not team_short:
+                                continue
+
+                            pa_s  = cells[i_pa]
+                            ops_s = cells[i_ops]
+                            pa  = int(pa_s)  if pa_s.isdigit() else 0
+                            ops = float(ops_s) if ops_s and ops_s not in ("-", "") else None
+                            if pa < 5 or ops is None:
+                                continue
+
+                            if team_short not in team_data:
+                                team_data[team_short] = {"ops_sum": 0.0, "pa_total": 0}
+                            team_data[team_short]["ops_sum"] += ops * pa
+                            team_data[team_short]["pa_total"] += pa
+                        except (ValueError, IndexError):
+                            continue
+
+                    for t_short, d in team_data.items():
+                        if d["pa_total"] == 0:
+                            continue
+                        if t_short not in all_splits:
+                            all_splits[t_short] = {}
+                        all_splits[t_short][split_key] = {
+                            "ops": round(d["ops_sum"] / d["pa_total"], 3),
+                            "pa": d["pa_total"],
+                        }
+                    logger.info(f"타선 스플릿 수집 완료: {split_key} → {len(team_data)}팀")
+
+        except Exception as e:
+            logger.error(f"KBO 타선 스플릿 수집 실패 ({season}): {e}")
+
+        if all_splits:
+            cache_path.write_text(json.dumps(all_splits, ensure_ascii=False), encoding="utf-8")
+
+        return all_splits

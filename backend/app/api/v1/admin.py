@@ -24,6 +24,7 @@ class PitcherStatIn(BaseModel):
     whip: float
     k9: float
     ip: float
+    handedness: Optional[str] = None   # "L" or "R"
 
 class TeamBattingStatIn(BaseModel):
     team_short: str
@@ -37,29 +38,39 @@ class TeamBullpenStatIn(BaseModel):
     bullpen_whip: float
     bullpen_count: int = 0
 
+class TeamBattingSplitStatIn(BaseModel):
+    team_short: str
+    split: str   # "vs_lhp" or "vs_rhp"
+    ops: float
+    pa: int = 0
+
 class UploadStatsPayload(BaseModel):
     season: int
     pitchers: List[PitcherStatIn] = []
     team_batting: List[TeamBattingStatIn] = []
     team_bullpen: List[TeamBullpenStatIn] = []
+    team_batting_splits: List[TeamBattingSplitStatIn] = []
 
 
 @router.post("/upload-stats")
 async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(get_db)):
     """로컬에서 수집한 KBO 스탯을 DB에 저장 (upsert)"""
-    from app.models.kbo_stats import KboPitcherStat, KboTeamBattingStat, KboTeamBullypenStat
+    from app.models.kbo_stats import KboPitcherStat, KboTeamBattingStat, KboTeamBullypenStat, KboTeamBattingSplitStat
 
     season = payload.season
 
     # 투수 upsert
     if payload.pitchers:
         for p in payload.pitchers:
-            stmt = insert(KboPitcherStat).values(
-                season=season, name=p.name, team_short=p.team_short,
-                era=p.era, whip=p.whip, k9=p.k9, ip=p.ip,
-            ).on_conflict_do_update(
-                constraint="uq_kbo_pitcher",
-                set_={"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip},
+            vals = dict(season=season, name=p.name, team_short=p.team_short,
+                        era=p.era, whip=p.whip, k9=p.k9, ip=p.ip)
+            if p.handedness:
+                vals["handedness"] = p.handedness
+            upd = {"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip}
+            if p.handedness:
+                upd["handedness"] = p.handedness
+            stmt = insert(KboPitcherStat).values(**vals).on_conflict_do_update(
+                constraint="uq_kbo_pitcher", set_=upd,
             )
             await db.execute(stmt)
 
@@ -87,14 +98,31 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
             )
             await db.execute(stmt)
 
+    # 팀 타선 스플릿 upsert
+    if payload.team_batting_splits:
+        for s in payload.team_batting_splits:
+            stmt = insert(KboTeamBattingSplitStat).values(
+                season=season, team_short=s.team_short, split=s.split,
+                ops=s.ops, pa=s.pa,
+            ).on_conflict_do_update(
+                constraint="uq_kbo_team_batting_split",
+                set_={"ops": s.ops, "pa": s.pa},
+            )
+            await db.execute(stmt)
+
     await db.commit()
-    logger.info(f"스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, 팀타선={len(payload.team_batting)}, 불펜={len(payload.team_bullpen)}")
+    logger.info(
+        f"스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, "
+        f"팀타선={len(payload.team_batting)}, 불펜={len(payload.team_bullpen)}, "
+        f"스플릿={len(payload.team_batting_splits)}"
+    )
     return {
         "status": "ok",
         "season": season,
         "pitchers_upserted": len(payload.pitchers),
         "team_batting_upserted": len(payload.team_batting),
         "team_bullpen_upserted": len(payload.team_bullpen),
+        "splits_upserted": len(payload.team_batting_splits),
     }
 
 

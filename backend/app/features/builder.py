@@ -77,10 +77,14 @@ _PITCHER_BATTER_COLUMNS = [
     "lineup_ops_diff",
 ]
 
-# KBO 팀 로테이션 ERA + 불펜 ERA
+# KBO 팀 로테이션 ERA + 불펜 ERA + 선발 투구 방향 + 타선 스플릿 OPS
 _KBO_ROTATION_COLUMNS = [
     "home_rotation_era", "away_rotation_era", "rotation_era_diff",
     "home_bullpen_era", "away_bullpen_era", "bullpen_era_diff",
+    # 선발투수 투구 방향 (1=좌완, 0=우완, NaN=미확인)
+    "home_sp_throws_is_lhp", "away_sp_throws_is_lhp",
+    # 상대 선발 투구 방향 기준 팀 타선 스플릿 OPS
+    "home_lineup_split_ops", "away_lineup_split_ops", "lineup_split_ops_diff",
 ]
 
 # KBO: 팀 폼 + 팀 로테이션 ERA + 날씨 + 구장
@@ -154,10 +158,19 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
                 home_sp_era_indiv = await get_kbo_starter_era(
                     game.home_starter_name, home_team_obj.short_name, season, db=db
                 )
+                # 투구 방향이 아직 없으면 DB에서 조회
+                if home_sp_throws is None:
+                    home_sp_throws = await _get_kbo_pitcher_handedness(
+                        db, game.home_starter_name, home_team_obj.short_name, season
+                    )
             if away_team_obj and game.away_starter_name:
                 away_sp_era_indiv = await get_kbo_starter_era(
                     game.away_starter_name, away_team_obj.short_name, season, db=db
                 )
+                if away_sp_throws is None:
+                    away_sp_throws = await _get_kbo_pitcher_handedness(
+                        db, game.away_starter_name, away_team_obj.short_name, season
+                    )
             # 불펜 ERA
             if home_team_obj:
                 home_bullpen_era = await _get_kbo_bullpen_era(db, home_team_obj.short_name, season)
@@ -268,6 +281,16 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "home_sp_era_indiv": home_sp_era_indiv,
         "away_sp_era_indiv": away_sp_era_indiv,
         "sp_era_indiv_diff": _safe_diff(home_sp_era_indiv, away_sp_era_indiv),
+        # 선발 투구 방향 (1=좌완, 0=우완, NaN=미확인)
+        "home_sp_throws_is_lhp": (1 if home_sp_throws == "L" else 0) if home_sp_throws else float("nan"),
+        "away_sp_throws_is_lhp": (1 if away_sp_throws == "L" else 0) if away_sp_throws else float("nan"),
+        # 타선 스플릿 OPS (상대 선발 투구방향 기준)
+        "home_lineup_split_ops": home_lineup.get("lineup_vs_lhp_ops") if away_sp_throws == "L" else home_lineup.get("lineup_vs_rhp_ops"),
+        "away_lineup_split_ops": away_lineup.get("lineup_vs_lhp_ops") if home_sp_throws == "L" else away_lineup.get("lineup_vs_rhp_ops"),
+        "lineup_split_ops_diff": _safe_diff(
+            home_lineup.get("lineup_vs_lhp_ops") if away_sp_throws == "L" else home_lineup.get("lineup_vs_rhp_ops"),
+            away_lineup.get("lineup_vs_lhp_ops") if home_sp_throws == "L" else away_lineup.get("lineup_vs_rhp_ops"),
+        ),
         # 날씨
         "temperature_c": weather.get("temperature_c"),
         "is_hot": int(weather.get("is_hot", False)),
@@ -314,6 +337,22 @@ def _to_float(val) -> float:
         return float(val)
     except (TypeError, ValueError):
         return float("nan")
+
+
+async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: str, season: int) -> Optional[str]:
+    """KBO 투수 투구 방향 조회 (L/R). statiz에서 수집한 handedness 필드."""
+    from app.models.kbo_stats import KboPitcherStat
+    from sqlalchemy import and_
+    for s in [season, season - 1]:
+        row = (await db.execute(
+            select(KboPitcherStat).where(
+                and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short,
+                     KboPitcherStat.season == s)
+            )
+        )).scalar_one_or_none()
+        if row and row.handedness:
+            return row.handedness
+    return None
 
 
 async def _get_kbo_bullpen_era(db: AsyncSession, team_short: str, season: int) -> Optional[float]:

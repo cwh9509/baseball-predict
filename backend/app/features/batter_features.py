@@ -16,6 +16,36 @@ MLB_BATTING_AVG = {"ops": 0.728, "wrc_plus": 100, "k_rate": 0.222}
 KBO_BATTING_AVG = {"ops": 0.740, "wrc_plus": 100, "k_rate": 0.200}
 
 
+async def _get_kbo_team_batting_split(team_id: int, season: int, split: str, db: AsyncSession) -> Optional[float]:
+    """KBO 팀 타선 vs LHP/RHP 스플릿 OPS 조회 ('vs_lhp' or 'vs_rhp')"""
+    try:
+        from sqlalchemy import select, and_
+        from app.models import Team
+        from app.models.kbo_stats import KboTeamBattingSplitStat
+
+        team_result = await db.execute(select(Team).where(Team.id == team_id))
+        team = team_result.scalar_one_or_none()
+        if not team:
+            return None
+
+        for s in [season, season - 1]:
+            row = (await db.execute(
+                select(KboTeamBattingSplitStat).where(
+                    and_(
+                        KboTeamBattingSplitStat.team_short == team.short_name,
+                        KboTeamBattingSplitStat.season == s,
+                        KboTeamBattingSplitStat.split == split,
+                    )
+                )
+            )).scalar_one_or_none()
+            if row:
+                return row.ops
+        return None
+    except Exception as e:
+        logger.debug(f"KBO 타선 스플릿 OPS DB 조회 실패 (team_id={team_id}, split={split}): {e}")
+        return None
+
+
 async def _get_kbo_team_batting(team_id: int, season: int, db: AsyncSession) -> Optional[dict]:
     """KBO 팀 타선 스탯을 DB에서 조회 (로컬에서 업로드된 statiz 스탯)
     현 시즌 없으면 직전 시즌 폴백
@@ -69,18 +99,28 @@ async def get_lineup_features(
         k_rate   = avg["k_rate"]
         imputed  = True
 
-    # 상대 투수 투구 방향에 따라 유효 OPS 조정 (좌완 상대 약세)
+    # 실제 좌우 스플릿 OPS 조회 (없으면 고정 보정 폴백)
+    split_ops_vs_lhp: Optional[float] = None
+    split_ops_vs_rhp: Optional[float] = None
+    if league == "KBO":
+        split_ops_vs_lhp = await _get_kbo_team_batting_split(team_id, season, "vs_lhp", db)
+        split_ops_vs_rhp = await _get_kbo_team_batting_split(team_id, season, "vs_rhp", db)
+
+    lhp_ops = split_ops_vs_lhp if split_ops_vs_lhp is not None else ops * 0.97
+    rhp_ops = split_ops_vs_rhp if split_ops_vs_rhp is not None else ops * 1.02
+
+    # 상대 투수 투구 방향에 따라 유효 OPS 결정
     if opponent_starter_throws == "L":
-        effective_ops = ops * 0.97
+        effective_ops = lhp_ops
     else:
-        effective_ops = ops
+        effective_ops = rhp_ops
 
     return {
         "lineup_ops_mean":      ops,
         "lineup_wrc_plus":      wrc_plus,
         "lineup_k_rate":        k_rate,
-        "lineup_vs_lhp_ops":    ops * 0.97,
-        "lineup_vs_rhp_ops":    ops * 1.02,
+        "lineup_vs_lhp_ops":    lhp_ops,
+        "lineup_vs_rhp_ops":    rhp_ops,
         "effective_ops":        effective_ops,
         "is_lineup_imputed":    imputed,
     }
