@@ -122,11 +122,25 @@ async def run_for_date(target_date: date) -> None:
             if raw.external_game_id:
                 starter_map[raw.external_game_id] = (raw.home_starter_name, raw.away_starter_name)
 
+        from app.collectors.lineup_collector import KBOLineupCollector
+        lineup_collector = KBOLineupCollector()
+
         updated_count = 0
         for game in games:
             starters = starter_map.get(game.external_game_id or "")
             home_starter = starters[0] if starters else None
             away_starter = starters[1] if starters else None
+
+            # 스케줄 API에서 선발 없으면 lineup collector로 폴백
+            if (not home_starter or not away_starter) and game.external_game_id:
+                try:
+                    lc_result = await lineup_collector.fetch_lineup(game.external_game_id)
+                    if lc_result:
+                        home_starter = home_starter or lc_result.get("home_starter")
+                        away_starter = away_starter or lc_result.get("away_starter")
+                        logger.debug(f"game_id={game.id} lineup collector 폴백: home={home_starter}, away={away_starter}")
+                except Exception as e:
+                    logger.debug(f"game_id={game.id} lineup collector 폴백 실패: {e}")
 
             lineup = {
                 "home_starter": home_starter,
