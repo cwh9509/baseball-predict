@@ -1,7 +1,10 @@
 """
-GET /api/v1/history
-신뢰도 등급별 적중률 요약 + 페이지네이션된 예측 히스토리
+GET /api/v1/history        - 페이지네이션된 예측 히스토리 + 요약
+GET /api/v1/history/calendar - 월별 달력 뷰 (일별 적중 현황)
+GET /api/v1/history/teams    - 팀별 예측 정확도
+GET /api/v1/history/betting  - 베팅 시뮬레이터용 전체 데이터 (오래된순)
 """
+from calendar import monthrange
 from datetime import date
 from typing import Optional
 
@@ -132,3 +135,153 @@ async def get_history(
             "pages": (total + per_page - 1) // per_page,
         },
     }
+
+
+def _latest_pred_subq(conditions):
+    """game_id별 최신 prediction id 서브쿼리"""
+    return (
+        select(func.max(Prediction.id).label("max_id"))
+        .join(Game, Prediction.game_id == Game.id)
+        .where(and_(*conditions))
+        .group_by(Prediction.game_id)
+    ).subquery()
+
+
+@router.get("/calendar")
+async def get_history_calendar(
+    league: str = Query(...),
+    year: int = Query(...),
+    month: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """월별 달력: 날짜별 예측 총수 + 적중수 반환"""
+    start = date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    end = date(year, month, last_day)
+
+    conditions = [
+        Game.game_date >= start,
+        Game.game_date <= end,
+        Game.league == league,
+        Prediction.was_correct.isnot(None),
+    ]
+
+    subq = _latest_pred_subq(conditions)
+    stmt = (
+        select(
+            Game.game_date,
+            func.count(Prediction.id).label("total"),
+            func.sum(func.cast(Prediction.was_correct, Integer)).label("correct"),
+        )
+        .join(Game, Prediction.game_id == Game.id)
+        .where(Prediction.id.in_(select(subq.c.max_id)))
+        .group_by(Game.game_date)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    days: dict = {}
+    for row in rows:
+        days[str(row.game_date)] = {
+            "total": row.total or 0,
+            "correct": int(row.correct or 0),
+        }
+    return {"year": year, "month": month, "days": days}
+
+
+@router.get("/teams")
+async def get_history_teams(
+    league: str = Query(...),
+    year: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """팀별 예측 정확도 집계"""
+    start = date(year, 1, 1)
+    end = date(year, 12, 31)
+
+    conditions = [
+        Game.game_date >= start,
+        Game.game_date <= end,
+        Game.league == league,
+        Prediction.was_correct.isnot(None),
+    ]
+
+    subq = _latest_pred_subq(conditions)
+    stmt = (
+        select(Prediction, Game)
+        .join(Game, Prediction.game_id == Game.id)
+        .where(Prediction.id.in_(select(subq.c.max_id)))
+    )
+    rows = (await db.execute(stmt)).all()
+
+    # 팀별 집계 (홈/어웨이 모두 카운트)
+    team_stats: dict = {}  # team_id -> {total, correct}
+    for pred, game in rows:
+        for team_id in [game.home_team_id, game.away_team_id]:
+            if team_id not in team_stats:
+                team_stats[team_id] = {"total": 0, "correct": 0}
+            team_stats[team_id]["total"] += 1
+            if pred.was_correct:
+                team_stats[team_id]["correct"] += 1
+
+    result = []
+    for team_id, stats in team_stats.items():
+        team = (await db.execute(select(Team).where(Team.id == team_id))).scalar_one_or_none()
+        if not team:
+            continue
+        t = stats["total"]
+        c = stats["correct"]
+        result.append({
+            "team_id": team_id,
+            "team_name": team.name,
+            "team_short": team.short_name,
+            "total": t,
+            "correct": c,
+            "accuracy": round(c / t, 4) if t > 0 else 0.0,
+        })
+
+    result.sort(key=lambda x: x["accuracy"], reverse=True)
+    return {"teams": result, "year": year}
+
+
+@router.get("/betting")
+async def get_history_betting(
+    league: str = Query(...),
+    year: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """베팅 시뮬레이터: 오래된순 전체 예측 + 예측 확률 반환"""
+    start = date(year, 1, 1)
+    end = date(year, 12, 31)
+
+    conditions = [
+        Game.game_date >= start,
+        Game.game_date <= end,
+        Game.league == league,
+        Prediction.was_correct.isnot(None),
+    ]
+
+    subq = _latest_pred_subq(conditions)
+    stmt = (
+        select(Prediction, Game)
+        .join(Game, Prediction.game_id == Game.id)
+        .where(Prediction.id.in_(select(subq.c.max_id)))
+        .order_by(Game.game_date.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+
+    bets = []
+    for pred, game in rows:
+        home_win_prob = float(pred.home_win_prob)
+        predicted_win_prob = (
+            home_win_prob if pred.predicted_winner_id == game.home_team_id
+            else 1.0 - home_win_prob
+        )
+        bets.append({
+            "game_date": str(game.game_date),
+            "game_id": game.id,
+            "predicted_win_prob": round(predicted_win_prob, 4),
+            "was_correct": pred.was_correct,
+            "confidence_tier": pred.confidence_tier,
+        })
+
+    return {"bets": bets, "year": year}

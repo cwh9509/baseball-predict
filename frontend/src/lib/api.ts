@@ -63,3 +63,25 @@ export async function getHistory(
   )})
   return apiFetch(`/history?${p}`)
 }
+
+export async function getHistoryCalendar(
+  league: string,
+  year: number,
+  month: number,
+): Promise<{ year: number; month: number; days: Record<string, { total: number; correct: number }> }> {
+  return apiFetch(`/history/calendar?league=${league}&year=${year}&month=${month}`)
+}
+
+export async function getHistoryTeams(
+  league: string,
+  year: number,
+): Promise<{ teams: Array<{ team_id: number; team_name: string; team_short: string; total: number; correct: number; accuracy: number }>; year: number }> {
+  return apiFetch(`/history/teams?league=${league}&year=${year}`)
+}
+
+export async function getHistoryBetting(
+  league: string,
+  year: number,
+): Promise<{ bets: Array<{ game_date: string; game_id: number; predicted_win_prob: number; was_correct: boolean; confidence_tier: string }>; year: number }> {
+  return apiFetch(`/history/betting?league=${league}&year=${year}`)
+}
