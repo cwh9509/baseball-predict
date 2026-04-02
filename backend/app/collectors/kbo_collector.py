@@ -612,23 +612,28 @@ class KBOCollector(BaseCollector):
                 headers = [h.get_text(strip=True) for h in header_cells]
                 idx: dict[str, int] = {h: i for i, h in enumerate(headers)}
 
+                # statiz 타자 테이블: '비율' 헤더 이후에 AVG/OBP/SLG/OPS/wOBA/wRC+ 순서
                 i_name = idx.get("Name", 1)
                 i_team = idx.get("Team", 2)
-                i_pa   = idx.get("PA",   4)
-                i_so   = idx.get("SO",   idx.get("K", 14))
-                i_ops  = idx.get("OPS",  idx.get("OPS+", 20))
-                i_wrc  = idx.get("wRC+", idx.get("wRC", 22))
+                i_pa   = idx.get("PA", 7)
+                i_so   = idx.get("SO", 22)
+                # '비율' 헤더 위치 기준으로 OPS(+3), wRC+(+5) 계산
+                i_biyul = idx.get("비율", 26)
+                i_ops   = i_biyul + 3   # AVG, OBP, SLG, OPS 순
+                i_wrc   = i_biyul + 5   # AVG, OBP, SLG, OPS, wOBA, wRC+
 
                 for tr in rows[1:]:
                     raw_cells = tr.find_all(["td", "th"])
                     cells = [td.get_text(strip=True) for td in raw_cells]
                     if not cells or cells[0] in ("", "WAR") or not cells[0].isdigit():
                         continue
-                    if len(cells) < max(i_ops, i_wrc) + 1:
+                    if len(cells) < i_wrc + 1:
                         continue
 
                     try:
                         name = cells[i_name]
+
+                        # 팀: SVG img src에서 코드 추출
                         team_short = ""
                         if i_team < len(raw_cells):
                             img = raw_cells[i_team].find("img")
@@ -637,30 +642,32 @@ class KBOCollector(BaseCollector):
                                 if m:
                                     team_short = STATIZ_TEAM_CODE_TO_SHORT.get(m.group(1), "")
                         if not team_short:
-                            team_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
+                            # 텍스트에서 숫자/포지션 제거 후 팀명 매핑
+                            raw_text = re.sub(r"[\d]+[A-Z]+", "", cells[i_team]).strip()
+                            team_short = KBO_TEAM_NAME_TO_SHORT.get(raw_text, "")
 
-                        pa_s  = cells[i_pa]  if i_pa < len(cells) else "0"
-                        so_s  = cells[i_so]  if i_so < len(cells) else "0"
-                        ops_s = cells[i_ops] if i_ops < len(cells) else ""
-                        wrc_s = cells[i_wrc] if i_wrc < len(cells) else ""
+                        pa_s  = cells[i_pa]
+                        so_s  = cells[i_so]
+                        ops_s = cells[i_ops]
+                        wrc_s = cells[i_wrc]
 
-                        pa  = int(pa_s)  if pa_s.isdigit() else 0
-                        if pa < 30:  # 30타석 미만 제외
+                        pa = int(pa_s) if pa_s.isdigit() else 0
+                        if pa < 5:  # 5타석 미만만 제외 (시즌 초반 대응)
                             continue
 
-                        ops  = float(ops_s) if ops_s and ops_s not in ("-", "") else 0.740
-                        wrc  = float(wrc_s) if wrc_s and wrc_s not in ("-", "") else 100.0
-                        so   = float(so_s)  if so_s  and so_s  not in ("-", "") else 0.0
-                        k_rate = (so / pa) if pa > 0 else 0.200
+                        ops    = float(ops_s) if ops_s and ops_s not in ("-", "") else 0.740
+                        wrc    = float(wrc_s) if wrc_s and wrc_s not in ("-", "") else 100.0
+                        so     = float(so_s)  if so_s  and so_s  not in ("-", "") else 0.0
+                        k_rate = (so / pa)    if pa > 0 else 0.200
 
                         results.append({
-                            "name": name,
+                            "name":      name,
                             "team_short": team_short,
-                            "season": season,
-                            "pa": pa,
-                            "ops": ops,
-                            "wrc_plus": wrc,
-                            "k_rate": k_rate,
+                            "season":    season,
+                            "pa":        pa,
+                            "ops":       ops,
+                            "wrc_plus":  wrc,
+                            "k_rate":    k_rate,
                         })
                     except (IndexError, ValueError):
                         continue
