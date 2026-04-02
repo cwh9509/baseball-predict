@@ -100,7 +100,7 @@ export default function CalendarView({ league }: { league: string }) {
           {/* Cells */}
           <div className="grid grid-cols-7">
             {cells.map((day, idx) => {
-              if (!day) return <div key={idx} className="aspect-square border-b border-r border-gray-50" />
+              if (!day) return <div key={idx} className="h-12 border-b border-r border-gray-50" />
               const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
               const stat = days[dateStr]
               const col = dayColor(stat)
@@ -109,17 +109,14 @@ export default function CalendarView({ league }: { league: string }) {
                 <div
                   key={idx}
                   className={cn(
-                    "aspect-square border-b border-r border-gray-50 p-1.5 flex flex-col justify-between cursor-default",
+                    "h-12 border-b border-r border-gray-50 px-1.5 py-1 flex flex-col justify-between cursor-default",
                     col
                   )}
                   title={stat ? `${stat.correct}/${stat.total} 적중` : "경기 없음"}
                 >
-                  <span className="text-xs font-medium leading-none">{day}</span>
+                  <span className="text-[11px] font-medium leading-none">{day}</span>
                   {pct !== null && (
-                    <span className="text-[10px] font-semibold leading-none self-end">{pct}%</span>
-                  )}
-                  {stat && stat.total > 0 && (
-                    <span className="text-[9px] leading-none self-end opacity-70">{stat.total}경기</span>
+                    <span className="text-[11px] font-semibold leading-none self-end">{pct}%</span>
                   )}
                 </div>
               )
