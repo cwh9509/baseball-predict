@@ -1,18 +1,25 @@
 """
 오늘 라인업 수동 입력 스크립트
 사용: python manual_lineup.py --url https://baseball-predict-production.up.railway.app
+
+DB game_id 기준 (collect 재실행 후 home/away 교정된 상태):
+  61: LG(홈) vs KIA(원정)
+  65: 한화(홈) vs KT(원정)
+  64: NC(홈) vs 롯데(원정)
+  63: 삼성(홈) vs 두산(원정)
+  62: SSG(홈) vs 키움(원정)
 """
 import argparse
 import httpx
-import json
 
-DATE = "2026-04-02"
-
+# collect?force=true 실행 후 home/away가 교정된 상태 기준
+# home_starter = 홈팀 선발, away_starter = 원정팀 선발
 GAMES = [
-    # KIA(away) vs LG(home)
+    # game 61: LG(홈) vs KIA(원정)
     {
-        "home_team": "LG", "away_team": "KIA",
-        "home_starter": "웰스", "away_starter": "김태형",
+        "game_id": 61,
+        "home_starter": "웰스",
+        "away_starter": "김태형",
         "home_lineup": [
             {"order": 1, "name": "홍창기", "position": ""},
             {"order": 2, "name": "신민재", "position": ""},
@@ -36,10 +43,11 @@ GAMES = [
             {"order": 9, "name": "박민", "position": ""},
         ],
     },
-    # KT(away) vs 한화(home)
+    # game 65: 한화(홈) vs KT(원정)
     {
-        "home_team": "한화", "away_team": "KT",
-        "home_starter": "문동주", "away_starter": "오원석",
+        "game_id": 65,
+        "home_starter": "문동주",
+        "away_starter": "오원석",
         "home_lineup": [
             {"order": 1, "name": "오재원", "position": ""},
             {"order": 2, "name": "페라자", "position": ""},
@@ -63,10 +71,11 @@ GAMES = [
             {"order": 9, "name": "이강민", "position": ""},
         ],
     },
-    # 롯데(away) vs NC(home)
+    # game 64: NC(홈) vs 롯데(원정)
     {
-        "home_team": "NC", "away_team": "롯데",
-        "home_starter": "버하겐", "away_starter": "김진욱",
+        "game_id": 64,
+        "home_starter": "버하겐",
+        "away_starter": "김진욱",
         "home_lineup": [
             {"order": 1, "name": "김주원", "position": ""},
             {"order": 2, "name": "박민우", "position": ""},
@@ -90,10 +99,11 @@ GAMES = [
             {"order": 9, "name": "전민재", "position": ""},
         ],
     },
-    # 두산(away) vs 삼성(home)
+    # game 63: 삼성(홈) vs 두산(원정)
     {
-        "home_team": "삼성", "away_team": "두산",
-        "home_starter": "이승현", "away_starter": "최민석",
+        "game_id": 63,
+        "home_starter": "이승현",
+        "away_starter": "최민석",
         "home_lineup": [
             {"order": 1, "name": "김지찬", "position": ""},
             {"order": 2, "name": "김성윤", "position": ""},
@@ -117,10 +127,11 @@ GAMES = [
             {"order": 9, "name": "박지훈", "position": ""},
         ],
     },
-    # 키움(away) vs SSG(home)
+    # game 62: SSG(홈) vs 키움(원정)
     {
-        "home_team": "SSG", "away_team": "키움",
-        "home_starter": "최민준", "away_starter": "정현우",
+        "game_id": 62,
+        "home_starter": "최민준",
+        "away_starter": "정현우",
         "home_lineup": [
             {"order": 1, "name": "박성한", "position": ""},
             {"order": 2, "name": "에레디아", "position": ""},
@@ -152,18 +163,16 @@ def main():
     parser.add_argument("--url", default="https://baseball-predict-production.up.railway.app")
     args = parser.parse_args()
 
-    payload = {"date": DATE, "games": GAMES}
     endpoint = f"{args.url.rstrip('/')}/api/v1/admin/lineup/manual"
-
     print(f"전송: {endpoint}")
-    resp = httpx.post(endpoint, json=payload, timeout=60)
+
+    resp = httpx.post(endpoint, json={"games": GAMES}, timeout=60)
     resp.raise_for_status()
     data = resp.json()
 
-    print(f"\n결과 ({data['date']}):")
+    print("\n결과:")
     for r in data["results"]:
-        status = r.get("status", "?")
-        print(f"  {r.get('away','?')} @ {r.get('home','?')}: {r.get('away_starter','?')} vs {r.get('home_starter','?')} → {status}")
+        print(f"  game_id={r['game_id']}: {r.get('away_starter','?')} vs {r.get('home_starter','?')} → {r['status']}")
 
 
 if __name__ == "__main__":

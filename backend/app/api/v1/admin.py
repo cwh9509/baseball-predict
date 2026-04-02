@@ -195,15 +195,13 @@ class LineupPlayerIn(BaseModel):
     position: str = ""
 
 class ManualGameLineupIn(BaseModel):
-    home_team: str   # 팀 short (예: "LG", "KIA")
-    away_team: str
+    game_id: int
     home_starter: Optional[str] = None
     away_starter: Optional[str] = None
     home_lineup: List[LineupPlayerIn] = []
     away_lineup: List[LineupPlayerIn] = []
 
 class ManualLineupPayload(BaseModel):
-    date: str   # "2026-04-02"
     games: List[ManualGameLineupIn]
 
 
@@ -213,36 +211,12 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
     from datetime import datetime, timezone
     from sqlalchemy import select, update
     from app.models import Game
-    from app.models.team import Team
-
-    try:
-        d = datetime.strptime(payload.date, "%Y-%m-%d").date()
-    except ValueError:
-        return {"error": "date 형식 오류 (YYYY-MM-DD)"}
 
     results = []
     for g in payload.games:
-        # Team short_name → id 조회
-        home_team_row = (await db.execute(
-            select(Team).where(Team.short_name == g.home_team, Team.league == "KBO")
-        )).scalar_one_or_none()
-        away_team_row = (await db.execute(
-            select(Team).where(Team.short_name == g.away_team, Team.league == "KBO")
-        )).scalar_one_or_none()
-
-        if not home_team_row or not away_team_row:
-            results.append({"home": g.home_team, "away": g.away_team, "status": f"team_not_found home={home_team_row is not None} away={away_team_row is not None}"})
-            continue
-
-        stmt = select(Game).where(
-            Game.game_date == d,
-            Game.league == "KBO",
-            Game.home_team_id == home_team_row.id,
-            Game.away_team_id == away_team_row.id,
-        )
-        row = (await db.execute(stmt)).scalar_one_or_none()
+        row = (await db.execute(select(Game).where(Game.id == g.game_id))).scalar_one_or_none()
         if not row:
-            results.append({"home": g.home_team, "away": g.away_team, "status": "not_found"})
+            results.append({"game_id": g.game_id, "status": "not_found"})
             continue
 
         now = datetime.now(timezone.utc)
@@ -275,15 +249,13 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
 
         results.append({
             "game_id": row.id,
-            "home": g.home_team,
-            "away": g.away_team,
             "home_starter": g.home_starter,
             "away_starter": g.away_starter,
             "lineup_locked": updates.get("lineup_locked", False),
             "status": pred_status,
         })
 
-    return {"date": payload.date, "results": results}
+    return {"results": results}
 
 
 @router.post("/collect-results")
