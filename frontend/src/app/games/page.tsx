@@ -12,7 +12,7 @@ interface PageProps {
 }
 
 export default async function GamesPage({ searchParams }: PageProps) {
-  const league = searchParams.league ?? "KBO"
+  const league = "KBO"
   const date = searchParams.date
   const today = date ?? new Date().toISOString().slice(0, 10)
 
@@ -34,22 +34,6 @@ export default async function GamesPage({ searchParams }: PageProps) {
         <div className="flex items-center gap-3 flex-wrap">
           {/* 날짜 네비게이터 */}
           <DateNavigator currentDate={today} league={league} />
-          {/* 리그 전환 */}
-          <div className="flex gap-2">
-            {["MLB", "KBO", "NPB"].map((l) => (
-              <a
-                key={l}
-                href={`/games?league=${l}&date=${today}`}
-                className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
-                  league === l
-                    ? "bg-primary text-white border-primary"
-                    : "bg-white text-gray-600 border-gray-300 hover:border-primary"
-                }`}
-              >
-                {l}
-              </a>
-            ))}
-          </div>
         </div>
       </div>
 

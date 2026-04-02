@@ -6,15 +6,13 @@ import dynamic from "next/dynamic"
 
 const CalendarView = dynamic(() => import("./CalendarView"), { ssr: false })
 const TeamTracker = dynamic(() => import("./TeamTracker"), { ssr: false })
-const BettingSimulator = dynamic(() => import("./BettingSimulator"), { ssr: false })
 
-type Tab = "list" | "calendar" | "teams" | "betting"
+type Tab = "list" | "calendar" | "teams"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "list", label: "📋 리스트" },
   { id: "calendar", label: "📅 캘린더" },
   { id: "teams", label: "🏆 팀별" },
-  { id: "betting", label: "💰 베팅 시뮬" },
 ]
 
 export default function HistoryPage() {
@@ -65,7 +63,7 @@ export default function HistoryPage() {
         <>
           {/* 요약 카드 */}
           {summary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <div className="flex gap-3 mb-6 overflow-x-auto">
               <StatCard label="총 예측" value={summary.total_predictions} />
               <StatCard label="적중" value={summary.correct} />
               <StatCard label="정확도" value={`${(summary.accuracy * 100).toFixed(1)}%`} highlight />
@@ -145,7 +143,6 @@ export default function HistoryPage() {
 
       {tab === "calendar" && <CalendarView league={league} />}
       {tab === "teams" && <TeamTracker league={league} />}
-      {tab === "betting" && <BettingSimulator league={league} />}
     </div>
   )
 }
@@ -154,7 +151,7 @@ function StatCard({ label, value, sub, highlight }: {
   label: string; value: string | number; sub?: string; highlight?: boolean
 }) {
   return (
-    <div className="bg-white rounded-xl border shadow-sm p-4 text-center">
+    <div className="bg-white rounded-xl border shadow-sm p-4 text-center flex-1 min-w-[100px]">
       <div className="text-xs text-gray-500 mb-1">{label}</div>
       <div className={cn("text-2xl font-bold", highlight ? "text-green-600" : "text-gray-900")}>
         {value}
