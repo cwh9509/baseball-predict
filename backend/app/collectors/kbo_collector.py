@@ -288,7 +288,9 @@ class KBOCollector(BaseCollector):
         return await asyncio.to_thread(self._fetch_pitcher_stats_sync, season)
 
     def _statiz_login(self, client: httpx.Client) -> bool:
-        """statiz.co.kr 로그인 → JWT 쿠키 설정. 성공 시 True 반환."""
+        """statiz.co.kr 로그인 → 쿠키 설정. 성공 시 True 반환."""
+        import json
+        from pathlib import Path
         from app.config import settings as app_settings
 
         uid = getattr(app_settings, "statiz_id", "")
@@ -297,8 +299,38 @@ class KBOCollector(BaseCollector):
             logger.warning("STATIZ_ID / STATIZ_PW 환경변수 미설정 — 로그인 스킵")
             return False
 
+        # 저장된 쿠키가 있으면 먼저 시도
+        cookie_path = Path("data/raw/statiz_cookies.json")
+        if cookie_path.exists():
+            try:
+                saved = json.loads(cookie_path.read_text())
+                for name, value in saved.items():
+                    client.cookies.set(name, value, domain="statiz.co.kr")
+                # 실제 접근 가능한지 확인
+                test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
+                if test.status_code == 200 and "로그인" not in test.text[:500]:
+                    logger.info("statiz 저장 쿠키로 세션 복원 성공")
+                    return True
+                logger.info("statiz 저장 쿠키 만료 — 재로그인 시도")
+                client.cookies.clear()
+            except Exception:
+                client.cookies.clear()
+
         try:
             from bs4 import BeautifulSoup
+
+            browser_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+            }
+            client.headers.update(browser_headers)
+
             login_page_url = f"{STATIZ_BASE_URL}/member/?m=login"
             r = client.get(login_page_url)
             soup = BeautifulSoup(r.text, "lxml")
@@ -312,12 +344,35 @@ class KBOCollector(BaseCollector):
                 for i in form.find_all("input", {"type": "hidden"})
                 if i.get("name")
             }
-            client.post(
+
+            resp = client.post(
                 STATIZ_LOGIN_URL,
                 data={**hidden, "userID": uid, "userPassword": pw},
-                headers={"Referer": login_page_url},
+                headers={"Referer": login_page_url, "Content-Type": "application/x-www-form-urlencoded"},
             )
-            return "access_token" in client.cookies
+
+            # 로그인 성공 여부 확인 (쿠키 또는 응답 내용으로)
+            has_token = "access_token" in client.cookies or "PHPSESSID" in client.cookies
+            if not has_token:
+                logger.warning(f"statiz 로그인 응답 쿠키 없음 (status={resp.status_code})")
+                return False
+
+            # 실제 접근 테스트
+            test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
+            if test.status_code != 200:
+                logger.warning(f"statiz 로그인 후 접근 실패: {test.status_code}")
+                return False
+
+            # 쿠키 저장
+            try:
+                cookie_path.parent.mkdir(parents=True, exist_ok=True)
+                cookie_path.write_text(json.dumps(dict(client.cookies)))
+            except Exception:
+                pass
+
+            logger.info("statiz 로그인 성공")
+            return True
+
         except Exception as e:
             logger.warning(f"statiz 로그인 실패: {e}")
             return False
@@ -493,6 +548,158 @@ class KBOCollector(BaseCollector):
             return float(ip_str)
         except (ValueError, ZeroDivisionError):
             return 0.0
+
+    async def fetch_batting_stats_season(self, season: int) -> list[dict]:
+        """시즌 전체 타자 통계 스크래핑 (캐시 지원)"""
+        return await asyncio.to_thread(self._fetch_batting_stats_sync, season)
+
+    def _fetch_batting_stats_sync(self, season: int) -> list[dict]:
+        """statiz.co.kr KBO 시즌 타자 통계 스크래핑
+        URL: /stats/?m=main&m2=batting&year={season}&ipp=500
+        """
+        import dataclasses
+        import json
+        from pathlib import Path
+        from bs4 import BeautifulSoup
+
+        cache_path = Path(f"data/raw/kbo_batting_stats_{season}.json")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        current_year = time.localtime().tm_year
+        cache_ttl_seconds = 7 * 24 * 3600 if season >= current_year else None
+
+        if cache_path.exists():
+            expired = (
+                cache_ttl_seconds is not None
+                and (time.time() - cache_path.stat().st_mtime) > cache_ttl_seconds
+            )
+            if not expired:
+                try:
+                    return json.loads(cache_path.read_text(encoding="utf-8"))
+                except Exception:
+                    cache_path.unlink(missing_ok=True)
+
+        results: list[dict] = []
+        base_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        }
+
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
+                if not self._statiz_login(client):
+                    logger.warning(f"statiz 로그인 실패 — {season} 타자 통계 수집 불가")
+                    return []
+
+                url = f"{STATIZ_STATS_URL}?m=main&m2=batting&year={season}&ipp=500"
+                resp = client.get(url)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "lxml")
+                table = soup.find("table")
+                if not table:
+                    logger.warning(f"statiz: 타자 통계 테이블 없음 ({season})")
+                    return []
+
+                rows = table.find_all("tr")
+                if len(rows) < 3:
+                    return []
+
+                header_cells = rows[0].find_all(["th", "td"])
+                headers = [h.get_text(strip=True) for h in header_cells]
+                idx: dict[str, int] = {h: i for i, h in enumerate(headers)}
+
+                i_name = idx.get("Name", 1)
+                i_team = idx.get("Team", 2)
+                i_pa   = idx.get("PA",   4)
+                i_so   = idx.get("SO",   idx.get("K", 14))
+                i_ops  = idx.get("OPS",  idx.get("OPS+", 20))
+                i_wrc  = idx.get("wRC+", idx.get("wRC", 22))
+
+                for tr in rows[1:]:
+                    raw_cells = tr.find_all(["td", "th"])
+                    cells = [td.get_text(strip=True) for td in raw_cells]
+                    if not cells or cells[0] in ("", "WAR") or not cells[0].isdigit():
+                        continue
+                    if len(cells) < max(i_ops, i_wrc) + 1:
+                        continue
+
+                    try:
+                        name = cells[i_name]
+                        team_short = ""
+                        if i_team < len(raw_cells):
+                            img = raw_cells[i_team].find("img")
+                            if img:
+                                m = re.search(r"/(\d+)\.svg", img.get("src", ""))
+                                if m:
+                                    team_short = STATIZ_TEAM_CODE_TO_SHORT.get(m.group(1), "")
+                        if not team_short:
+                            team_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
+
+                        pa_s  = cells[i_pa]  if i_pa < len(cells) else "0"
+                        so_s  = cells[i_so]  if i_so < len(cells) else "0"
+                        ops_s = cells[i_ops] if i_ops < len(cells) else ""
+                        wrc_s = cells[i_wrc] if i_wrc < len(cells) else ""
+
+                        pa  = int(pa_s)  if pa_s.isdigit() else 0
+                        if pa < 30:  # 30타석 미만 제외
+                            continue
+
+                        ops  = float(ops_s) if ops_s and ops_s not in ("-", "") else 0.740
+                        wrc  = float(wrc_s) if wrc_s and wrc_s not in ("-", "") else 100.0
+                        so   = float(so_s)  if so_s  and so_s  not in ("-", "") else 0.0
+                        k_rate = (so / pa) if pa > 0 else 0.200
+
+                        results.append({
+                            "name": name,
+                            "team_short": team_short,
+                            "season": season,
+                            "pa": pa,
+                            "ops": ops,
+                            "wrc_plus": wrc,
+                            "k_rate": k_rate,
+                        })
+                    except (IndexError, ValueError):
+                        continue
+
+        except Exception as e:
+            logger.error(f"KBO 타자 통계 스크래핑 실패 ({season}): {e}")
+
+        if results:
+            logger.info(f"statiz: 타자 {len(results)}명 수집 완료 ({season})")
+            try:
+                cache_path.write_text(
+                    json.dumps(results, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning(f"타자 캐시 저장 실패: {e}")
+
+        return results
+
+    async def fetch_team_batting_stats(self, team_short: str, season: int) -> Optional[dict]:
+        """팀 타선 집계 (OPS/wRC+/K% 평균, PA 가중)"""
+        all_stats = await self.fetch_batting_stats_season(season)
+        team_batters = [b for b in all_stats if b["team_short"] == team_short]
+        if not team_batters:
+            return None
+
+        total_pa = sum(b["pa"] for b in team_batters)
+        if total_pa == 0:
+            return None
+
+        weighted_ops   = sum(b["ops"]      * b["pa"] for b in team_batters) / total_pa
+        weighted_wrc   = sum(b["wrc_plus"] * b["pa"] for b in team_batters) / total_pa
+        weighted_krate = sum(b["k_rate"]   * b["pa"] for b in team_batters) / total_pa
+
+        return {
+            "ops":      round(weighted_ops,   3),
+            "wrc_plus": round(weighted_wrc,   1),
+            "k_rate":   round(weighted_krate, 3),
+        }
 
     async def fetch_team_rotation_era(self, team_short: str, season: int, min_ip: float = 20.0) -> Optional[float]:
         """팀 로테이션 ERA (IP 기준 상위 5선발 가중 평균)"""
