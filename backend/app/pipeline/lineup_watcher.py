@@ -85,11 +85,12 @@ async def run_pre_game() -> None:
 
 
 async def run_for_date(target_date: date) -> None:
-    """특정 날짜 미확정 경기 라인업 체크 및 업데이트"""
+    """특정 날짜 미확정 경기 라인업 체크 및 업데이트
+    KBO 일정 API에서 선발투수 확인 → 양쪽 확정 시 lineup_locked=True
+    """
     logger.info(f"라인업 감시 시작 ({target_date})")
 
     async with AsyncSessionLocal() as db:
-        # KBO 경기 중 라인업 미확정인 것만
         result = await db.execute(
             select(Game).where(
                 Game.game_date == target_date,
@@ -104,37 +105,41 @@ async def run_for_date(target_date: date) -> None:
             logger.info(f"라인업 확인 대상 경기 없음 ({target_date})")
             return
 
-        logger.info(f"{len(games)}경기 라인업 확인 중... ({target_date})")
+        logger.info(f"{len(games)}경기 선발투수 확인 중... ({target_date})")
 
-        from app.collectors.lineup_collector import KBOLineupCollector
-        collector = KBOLineupCollector()
+        # KBO 일정 API에서 선발투수 최신 정보 가져오기
+        from app.collectors.kbo_collector import KBOCollector
+        kbo_collector = KBOCollector()
+        try:
+            schedule_games = await kbo_collector.fetch_schedule(target_date)
+        except Exception as e:
+            logger.warning(f"KBO 일정 수집 실패: {e}")
+            schedule_games = []
+
+        # external_game_id → (home_starter, away_starter) 매핑
+        starter_map: dict[str, tuple[Optional[str], Optional[str]]] = {}
+        for raw in schedule_games:
+            if raw.external_game_id:
+                starter_map[raw.external_game_id] = (raw.home_starter_name, raw.away_starter_name)
 
         updated_count = 0
         for game in games:
-            if not game.external_game_id:
-                logger.debug(f"game_id={game.id} external_game_id 없음 — 건너뜀")
-                continue
+            starters = starter_map.get(game.external_game_id or "")
+            home_starter = starters[0] if starters else None
+            away_starter = starters[1] if starters else None
 
-            logger.debug(f"game_id={game.id} (external={game.external_game_id}) 라인업 요청 중...")
-            try:
-                lineup = await collector.fetch_lineup(game.external_game_id)
-                if lineup:
-                    logger.debug(
-                        f"game_id={game.id} 라인업 응답: "
-                        f"home_starter={lineup.get('home_starter')}, "
-                        f"away_starter={lineup.get('away_starter')}, "
-                        f"home_lineup={len(lineup.get('home_lineup') or [])}명, "
-                        f"away_lineup={len(lineup.get('away_lineup') or [])}명"
-                    )
-                    changed = await _update_game_lineup(db, game, lineup)
-                    if changed:
-                        updated_count += 1
-                        # 라인업 확정 시 예측 재실행
-                        await _retrigger_prediction(db, game.id)
-                else:
-                    logger.info(f"game_id={game.id} 라인업 응답 없음 (아직 미발표)")
-            except Exception as e:
-                logger.warning(f"game_id={game.id} 라인업 수집 실패: {e}", exc_info=True)
+            lineup = {
+                "home_starter": home_starter,
+                "away_starter": away_starter,
+                "home_lineup": [],
+                "away_lineup": [],
+            }
+            changed = await _update_game_lineup(db, game, lineup)
+            if changed:
+                updated_count += 1
+                await _retrigger_prediction(db, game.id)
+            else:
+                logger.debug(f"game_id={game.id} 선발투수 미확정 (home={game.home_starter_name}, away={game.away_starter_name})")
 
     logger.info(f"라인업 감시 완료 — {updated_count}경기 업데이트 ({target_date})")
 
@@ -172,8 +177,10 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
         updates["away_lineup_json"] = away_lineup
         changed = True
 
-    # 라인업 확정 (홈+원정 모두 있을 때)
-    if home_lineup and away_lineup:
+    # 라인업 확정 — 양쪽 선발투수 확정되면 locked (타순은 부가 정보)
+    final_home_starter = home_starter or game.home_starter_name
+    final_away_starter = away_starter or game.away_starter_name
+    if final_home_starter and final_away_starter and not game.lineup_locked:
         updates["lineup_locked"] = True
         updates["lineup_locked_at"] = now
 

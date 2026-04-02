@@ -186,6 +186,8 @@ class ETLRunner:
                     "home_score": stmt.excluded.home_score,
                     "away_score": stmt.excluded.away_score,
                     "winner_team_id": stmt.excluded.winner_team_id,
+                    "home_starter_name": stmt.excluded.home_starter_name,
+                    "away_starter_name": stmt.excluded.away_starter_name,
                 },
             )
             result = await db.execute(stmt)
