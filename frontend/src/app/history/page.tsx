@@ -18,7 +18,7 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 export default function HistoryPage() {
-  const [league, setLeague] = useState("KBO")
+  const league = "KBO"
   const [tab, setTab] = useState<Tab>("list")
   const [page, setPage] = useState(1)
   const [data, setData] = useState<any>(null)
@@ -40,20 +40,6 @@ export default function HistoryPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">예측 히스토리</h1>
-        <div className="flex gap-2">
-          {["MLB", "KBO", "NPB"].map((l) => (
-            <button
-              key={l}
-              onClick={() => { setLeague(l); setPage(1) }}
-              className={cn(
-                "px-4 py-2 rounded-full text-sm border transition-colors",
-                league === l ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-300"
-              )}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Tabs */}
