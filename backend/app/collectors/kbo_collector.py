@@ -485,7 +485,7 @@ class KBOCollector(BaseCollector):
                             team_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
 
                         ip   = self._parse_innings(cells[i_ip])
-                        if ip < 10:   # 10이닝 미만 제외
+                        if ip < 1:   # 1이닝 미만 제외 (시즌 초 대응)
                             continue
 
                         era_s  = cells[i_era]
