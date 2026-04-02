@@ -48,37 +48,125 @@ class KBOLineupCollector:
         if not external_game_id:
             return None
 
-        # 방법 1: KBO 웹서비스 API 시도
-        result = await asyncio.to_thread(self._fetch_from_ws, external_game_id)
-        if result:
-            return result
+        # WS -> (필요 시) HTML 폴백을 동일 httpx.Client 세션에서 처리
+        return await asyncio.to_thread(self._fetch_from_ws_then_html, external_game_id)
 
-        # 방법 2: HTML 파싱 폴백
-        result = await asyncio.to_thread(self._fetch_from_html, external_game_id)
-        return result
+    def _fetch_from_ws_then_html(self, game_id: str) -> Optional[dict]:
+        """
+        KBO 라인업 수집을 WS 단독 시도 + 필요 시 HTML 폴백까지
+        하나의 httpx.Client(단일 세션)에서 처리합니다.
+        """
+        try:
+            import json
+
+            main_url = f"{KBO_GAME_MAIN_URL}?gameId={game_id}"
+
+            with httpx.Client(
+                headers=REQUEST_HEADERS,
+                timeout=15,
+                follow_redirects=True,
+            ) as client:
+                # 1) 세션 쿠키 확립
+                time.sleep(0.3)
+                client.get(main_url)
+
+                # 2) 라인업 웹서비스 호출
+                time.sleep(0.3)
+                resp = client.post(
+                    KBO_LINEUP_WS_URL,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": main_url,
+                    },
+                    data={"gameId": game_id},
+                )
+
+                ct = resp.headers.get("content-type", "") or ""
+                logger.debug(
+                    "KBO WS POST gameId=%s status_code=%s content-type=%r",
+                    game_id,
+                    resp.status_code,
+                    ct,
+                )
+
+                # 3) JSON 파싱 가능한 경우 WS 응답 파싱
+                fallback_reason: Optional[str] = None
+
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    fallback_reason = f"ws status_code={resp.status_code}"
+                elif "text/html" in ct.lower():
+                    # 302 후 HTML(혹은 리다이렉트된 페이지)로 떨어진 케이스
+                    fallback_reason = f"ws returned html content-type={ct!r}"
+                else:
+                    try:
+                        text = resp.content.decode("utf-8", errors="replace")
+                        data = json.loads(text)
+                        parsed = self._parse_ws_response(data)
+                        if parsed:
+                            return parsed
+                        fallback_reason = "ws json parsed but no lineup"
+                    except Exception as e:
+                        fallback_reason = f"ws json parse failed ({e.__class__.__name__})"
+
+                # 4) 동일 client로 HTML 폴백
+                logger.debug(
+                    "KBO WS fallback to HTML gameId=%s reason=%s",
+                    game_id,
+                    fallback_reason,
+                )
+                from bs4 import BeautifulSoup
+
+                time.sleep(0.5)
+                html_resp = client.get(main_url)
+                html_resp.raise_for_status()
+
+                try:
+                    html_text = html_resp.content.decode("utf-8", errors="replace")
+                except Exception:
+                    html_text = html_resp.content.decode("cp949", errors="replace")
+
+                soup = BeautifulSoup(html_text, "lxml")
+                return self._parse_html_lineup(soup)
+        except Exception as e:
+            logger.debug(f"KBO 라인업 WS+HTML 실패 ({game_id}): {e}")
+            return None
 
     def _fetch_from_ws(self, game_id: str) -> Optional[dict]:
-        """KBO 웹서비스 /ws/Game.asmx/GetLineUp 시도"""
+        """KBO 웹서비스 /ws/Game.asmx/GetLineUp 시도.
+        세션 쿠키가 필요하므로 먼저 게임 메인 페이지를 GET해 쿠키 확립 후 POST.
+        """
         try:
-            time.sleep(0.5)
-            resp = httpx.post(
-                KBO_LINEUP_WS_URL,
-                headers={**REQUEST_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                          "X-Requested-With": "XMLHttpRequest"},
-                data={"gameId": game_id},
-                timeout=10,
-                follow_redirects=True,
-            )
-            resp.raise_for_status()
-
             import json
-            try:
-                text = resp.content.decode("utf-8", errors="replace")
-            except Exception:
-                text = resp.text
+            with httpx.Client(
+                headers=REQUEST_HEADERS,
+                timeout=15,
+                follow_redirects=True,
+            ) as client:
+                # 세션 쿠키 확립
+                time.sleep(0.3)
+                client.get(f"{KBO_GAME_MAIN_URL}?gameId={game_id}")
 
-            data = json.loads(text)
-            return self._parse_ws_response(data)
+                # 라인업 웹서비스 호출
+                time.sleep(0.3)
+                resp = client.post(
+                    KBO_LINEUP_WS_URL,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": f"{KBO_GAME_MAIN_URL}?gameId={game_id}",
+                    },
+                    data={"gameId": game_id},
+                )
+
+                # 302 후 HTML 응답이면 실패
+                if "text/html" in resp.headers.get("content-type", ""):
+                    logger.debug(f"KBO WS 응답이 HTML (세션 미확립): {game_id}")
+                    return None
+
+                text = resp.content.decode("utf-8", errors="replace")
+                data = json.loads(text)
+                return self._parse_ws_response(data)
         except Exception as e:
             logger.debug(f"KBO 라인업 웹서비스 실패 ({game_id}): {e}")
             return None
@@ -130,11 +218,12 @@ class KBOLineupCollector:
         """koreabaseball.com 게임 메인 페이지 HTML 파싱"""
         try:
             from bs4 import BeautifulSoup
-            time.sleep(0.5)
 
             url = f"{KBO_GAME_MAIN_URL}?gameId={game_id}"
-            resp = httpx.get(url, headers=REQUEST_HEADERS, timeout=15, follow_redirects=True)
-            resp.raise_for_status()
+            with httpx.Client(headers=REQUEST_HEADERS, timeout=15, follow_redirects=True) as client:
+                time.sleep(0.5)
+                resp = client.get(url)
+                resp.raise_for_status()
 
             try:
                 text = resp.content.decode("utf-8", errors="replace")
