@@ -5,7 +5,7 @@ LLM 해설은 지연 생성 (이 엔드포인트 조회 시 Claude API 호출)
 Redis 캐시: TTL 1800초
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis_client import cache_get, cache_set
@@ -79,6 +79,10 @@ async def get_prediction(
             lineup_locked=bool(game.lineup_locked),
         )
 
+    # 최근 5경기 실제 W/L 결과 (최신순)
+    home_recent = await _get_recent_results(db, game.home_team_id, game.game_date, 5)
+    away_recent = await _get_recent_results(db, game.away_team_id, game.game_date, 5)
+
     home_win_prob = float(pred.home_win_prob)
     response = PredictionDetailResponse(
         game_id=game_id,
@@ -96,12 +100,34 @@ async def get_prediction(
         predicted_away_score=int(pred.predicted_away_score) if pred.predicted_away_score is not None else None,
         explanation=explanation,
         lineup=lineup,
+        home_recent_results=home_recent,
+        away_recent_results=away_recent,
     )
 
     # explanation 없으면 캐시 저장 안 함 (다음 요청에서 재시도)
     if explanation is not None:
         await cache_set(cache_key, response.model_dump(mode="json"), ttl=1800)
     return response
+
+
+async def _get_recent_results(db, team_id: int, before_date, n: int) -> list[bool]:
+    """최근 n경기 W/L 결과 (최신순, True=승)"""
+    from datetime import date as date_cls
+    result = await db.execute(
+        select(Game)
+        .where(
+            and_(
+                Game.status == "final",
+                Game.game_date < before_date,
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+                Game.winner_team_id.isnot(None),
+            )
+        )
+        .order_by(Game.game_date.desc())
+        .limit(n)
+    )
+    games = result.scalars().all()
+    return [g.winner_team_id == team_id for g in games]
 
 
 async def _generate_explanation_lazy(pred, game, home_team, away_team, db):

@@ -19,15 +19,19 @@ function StreakBadge({ streak }: { streak: number }) {
   )
 }
 
-// 최근 5경기 승률 → W/L 점 시각화 (추정)
-function FormDots({ winRate, games = 5 }: { winRate: number; games?: number }) {
-  const wins = Math.round(winRate * games)
+// 최근 경기 실제 W/L 시각화 (최신이 오른쪽)
+function FormDots({ results }: { results?: boolean[] }) {
+  if (!results || results.length === 0) {
+    return <div className="flex gap-1">{Array.from({ length: 5 }).map((_, i) => <span key={i} className="w-3 h-3 rounded-full bg-gray-100" />)}</div>
+  }
+  const ordered = [...results].reverse() // 오래된 것 → 최신 순
   return (
     <div className="flex gap-1">
-      {Array.from({ length: games }).map((_, i) => (
+      {ordered.map((won, i) => (
         <span
           key={i}
-          className={`w-3 h-3 rounded-full ${i < wins ? "bg-blue-500" : "bg-gray-200"}`}
+          className={`w-3 h-3 rounded-full ${won ? "bg-blue-500" : "bg-red-400"}`}
+          title={won ? "승" : "패"}
         />
       ))}
     </div>
@@ -59,6 +63,8 @@ function pct(v: unknown): string | null {
 
 export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }: Props) {
   const s = prediction.feature_snapshot
+  const homeRecent = prediction.home_recent_results
+  const awayRecent = prediction.away_recent_results
   const homeImputed = Boolean(s.home_sp_is_imputed)
   const awayImputed = Boolean(s.away_sp_is_imputed)
   const isDome = Boolean(s.is_dome_game)
@@ -140,7 +146,7 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">최근 5경기</span>
                 <div className="flex items-center gap-2">
-                  <FormDots winRate={Number(s.home_win_rate_L5 ?? 0)} />
+                  <FormDots results={homeRecent} />
                   <span className="text-xs text-gray-600">{pct(s.home_win_rate_L5)}</span>
                 </div>
               </div>
@@ -171,7 +177,7 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">최근 5경기</span>
                 <div className="flex items-center gap-2">
-                  <FormDots winRate={Number(s.away_win_rate_L5 ?? 0)} />
+                  <FormDots results={awayRecent} />
                   <span className="text-xs text-gray-600">{pct(s.away_win_rate_L5)}</span>
                 </div>
               </div>

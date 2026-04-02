@@ -40,4 +40,6 @@ export interface PredictionDetail {
   predicted_away_score?: number
   explanation?: Explanation
   lineup?: Lineup
+  home_recent_results?: boolean[]
+  away_recent_results?: boolean[]
 }

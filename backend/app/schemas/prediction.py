@@ -45,3 +45,5 @@ class PredictionDetailResponse(BaseModel):
     predicted_away_score: Optional[int] = None
     explanation: Optional[ExplanationSchema] = None
     lineup: Optional[LineupSchema] = None
+    home_recent_results: list[bool] = []
+    away_recent_results: list[bool] = []
