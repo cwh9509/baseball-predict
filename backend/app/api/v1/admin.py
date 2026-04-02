@@ -213,6 +213,7 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
     from datetime import datetime, timezone
     from sqlalchemy import select, update
     from app.models import Game
+    from app.models.team import Team
 
     try:
         d = datetime.strptime(payload.date, "%Y-%m-%d").date()
@@ -221,12 +222,23 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
 
     results = []
     for g in payload.games:
-        # 게임 조회
+        # Team short_name → id 조회
+        home_team_row = (await db.execute(
+            select(Team).where(Team.short_name == g.home_team, Team.league == "KBO")
+        )).scalar_one_or_none()
+        away_team_row = (await db.execute(
+            select(Team).where(Team.short_name == g.away_team, Team.league == "KBO")
+        )).scalar_one_or_none()
+
+        if not home_team_row or not away_team_row:
+            results.append({"home": g.home_team, "away": g.away_team, "status": f"team_not_found home={home_team_row is not None} away={away_team_row is not None}"})
+            continue
+
         stmt = select(Game).where(
             Game.game_date == d,
             Game.league == "KBO",
-            Game.home_team_short == g.home_team,
-            Game.away_team_short == g.away_team,
+            Game.home_team_id == home_team_row.id,
+            Game.away_team_id == away_team_row.id,
         )
         row = (await db.execute(stmt)).scalar_one_or_none()
         if not row:
