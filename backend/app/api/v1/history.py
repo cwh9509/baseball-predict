@@ -73,12 +73,19 @@ async def get_history(
 
     overall_accuracy = round(total_correct / total, 4) if total > 0 else 0.0
 
-    # 페이지네이션 쿼리
+    # 페이지네이션 쿼리 (game_id별 가장 최신 예측만)
     offset = (page - 1) * per_page
+    latest_pred_subq = (
+        select(func.max(Prediction.id).label("max_id"))
+        .join(Game, Prediction.game_id == Game.id)
+        .where(and_(*conditions))
+        .group_by(Prediction.game_id)
+    ).subquery()
+
     items_stmt = (
         select(Prediction, Game)
         .join(Game, Prediction.game_id == Game.id)
-        .where(and_(*conditions))
+        .where(Prediction.id.in_(select(latest_pred_subq.c.max_id)))
         .order_by(Game.game_date.desc())
         .offset(offset)
         .limit(per_page)
