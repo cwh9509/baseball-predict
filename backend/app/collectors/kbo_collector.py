@@ -184,8 +184,9 @@ class KBOCollector(BaseCollector):
                 continue
             game_id = game_id_match.group(1)
 
-            home_code = game_id[8:10]
-            away_code = game_id[10:12]
+            # KBO game ID 형식: YYYYMMDD[원정코드][홈코드]NN
+            away_code = game_id[8:10]
+            home_code = game_id[10:12]
             home_short = GAMEID_CODE_TO_SHORT.get(home_code)
             away_short = GAMEID_CODE_TO_SHORT.get(away_code)
 
