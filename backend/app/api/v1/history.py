@@ -99,13 +99,20 @@ async def get_history(
         winner_team = (await db.execute(select(Team).where(Team.id == pred.predicted_winner_id))).scalar_one_or_none() if pred.predicted_winner_id else None
         actual_winner = (await db.execute(select(Team).where(Team.id == game.winner_team_id))).scalar_one_or_none() if game.winner_team_id else None
 
+        home_win_prob = float(pred.home_win_prob)
+        if pred.predicted_winner_id == game.home_team_id:
+            predicted_win_prob = home_win_prob
+        else:
+            predicted_win_prob = 1.0 - home_win_prob
+
         predictions.append({
             "game_id": game.id,
             "game_date": str(game.game_date),
             "matchup": f"{home_team.name if home_team else '?'} vs {away_team.name if away_team else '?'}",
             "predicted_winner": winner_team.name if winner_team else "알 수 없음",
             "actual_winner": actual_winner.name if actual_winner else None,
-            "home_win_prob": float(pred.home_win_prob),
+            "home_win_prob": home_win_prob,
+            "predicted_win_prob": predicted_win_prob,
             "was_correct": pred.was_correct,
             "confidence_tier": pred.confidence_tier,
         })

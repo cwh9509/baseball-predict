@@ -66,7 +66,7 @@ export default function HistoryPage() {
               <th className="px-4 py-3 text-left">경기</th>
               <th className="px-4 py-3 text-left">예측</th>
               <th className="px-4 py-3 text-left">실제</th>
-              <th className="px-4 py-3 text-center">확률</th>
+              <th className="px-4 py-3 text-center">예측 확률</th>
               <th className="px-4 py-3 text-center">신뢰도</th>
               <th className="px-4 py-3 text-center">결과</th>
             </tr>
@@ -83,7 +83,7 @@ export default function HistoryPage() {
                   <td className="px-4 py-3 font-medium">{p.matchup}</td>
                   <td className="px-4 py-3">{p.predicted_winner}</td>
                   <td className="px-4 py-3 text-gray-500">{p.actual_winner ?? "-"}</td>
-                  <td className="px-4 py-3 text-center">{(p.home_win_prob * 100).toFixed(0)}%</td>
+                  <td className="px-4 py-3 text-center">{((p.predicted_win_prob ?? p.home_win_prob) * 100).toFixed(0)}%</td>
                   <td className="px-4 py-3 text-center">{CONFIDENCE_LABELS[p.confidence_tier]}</td>
                   <td className="px-4 py-3 text-center">
                     {p.was_correct === null ? "—" : p.was_correct ? "✅" : "❌"}
