@@ -42,23 +42,29 @@ async def get_history(
     if model_ver:
         conditions.append(Prediction.model_version == model_ver)
 
-    # 전체 개수
-    count_stmt = (
-        select(func.count(Prediction.id))
+    # 게임당 최신 예측 1개 기준 서브쿼리
+    latest_subq = (
+        select(func.max(Prediction.id).label("max_id"))
         .join(Game, Prediction.game_id == Game.id)
         .where(and_(*conditions))
+        .group_by(Prediction.game_id)
+    ).subquery()
+
+    # 전체 개수 (게임 수 기준)
+    count_stmt = (
+        select(func.count(Prediction.id))
+        .where(Prediction.id.in_(select(latest_subq.c.max_id)))
     )
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    # 정확도 요약
+    # 정확도 요약 (최신 예측 기준)
     summary_stmt = (
         select(
             Prediction.confidence_tier,
             func.count(Prediction.id).label("total"),
             func.sum(func.cast(Prediction.was_correct, Integer)).label("correct"),
         )
-        .join(Game, Prediction.game_id == Game.id)
-        .where(and_(*conditions))
+        .where(Prediction.id.in_(select(latest_subq.c.max_id)))
         .group_by(Prediction.confidence_tier)
     )
     summary_rows = (await db.execute(summary_stmt)).all()
@@ -76,19 +82,12 @@ async def get_history(
 
     overall_accuracy = round(total_correct / total, 4) if total > 0 else 0.0
 
-    # 페이지네이션 쿼리 (game_id별 가장 최신 예측만)
+    # 페이지네이션 쿼리
     offset = (page - 1) * per_page
-    latest_pred_subq = (
-        select(func.max(Prediction.id).label("max_id"))
-        .join(Game, Prediction.game_id == Game.id)
-        .where(and_(*conditions))
-        .group_by(Prediction.game_id)
-    ).subquery()
-
     items_stmt = (
         select(Prediction, Game)
         .join(Game, Prediction.game_id == Game.id)
-        .where(Prediction.id.in_(select(latest_pred_subq.c.max_id)))
+        .where(Prediction.id.in_(select(latest_subq.c.max_id)))
         .order_by(Game.game_date.desc())
         .offset(offset)
         .limit(per_page)
