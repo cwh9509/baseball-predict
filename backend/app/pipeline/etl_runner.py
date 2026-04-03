@@ -205,6 +205,9 @@ class ETLRunner:
                 index_elements=["league", "external_game_id"],
                 index_where=text("external_game_id IS NOT NULL"),
                 set_={
+                    "home_team_id": stmt.excluded.home_team_id,
+                    "away_team_id": stmt.excluded.away_team_id,
+                    "venue": stmt.excluded.venue,
                     "status": stmt.excluded.status,
                     "home_score": stmt.excluded.home_score,
                     "away_score": stmt.excluded.away_score,
