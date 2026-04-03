@@ -96,7 +96,9 @@ async def run_for_date(target_date: date) -> None:
                 Game.game_date == target_date,
                 Game.league == "KBO",
                 Game.status == "scheduled",
-                Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None),
+                # 선발투수 미확정이면 lineup_locked여도 재수집
+                (Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None) |
+                 Game.home_starter_name.is_(None) | Game.away_starter_name.is_(None)),
             )
         )
         games = result.scalars().all()
