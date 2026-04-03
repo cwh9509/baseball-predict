@@ -173,7 +173,7 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
         logger.info(f"기존 예측 삭제 완료: {d}")
 
     logger.info(f"수동 트리거: 경기 수집 + 예측 시작 ({d})")
-    asyncio.create_task(run(parsed_date))
+    asyncio.create_task(run(parsed_date, force=force))
     return {"status": "started", "date": str(d), "force": force}
 
 

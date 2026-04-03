@@ -13,7 +13,7 @@ from app.pipeline.etl_runner import ETLRunner
 logger = logging.getLogger(__name__)
 
 
-async def run(target_date: date | None = None) -> None:
+async def run(target_date: date | None = None, force: bool = False) -> None:
     today = target_date or date.today()
     logger.info(f"당일 경기 예측 시작: {today}")
 
@@ -23,10 +23,16 @@ async def run(target_date: date | None = None) -> None:
 
     # 예측 생성
     async with AsyncSessionLocal() as db:
+        from sqlalchemy import or_
+        status_filter = (
+            or_(Game.status == "scheduled", Game.status == "final", Game.status == "in_progress")
+            if force
+            else Game.status == "scheduled"
+        )
         result = await db.execute(
             select(Game).where(
                 Game.game_date == today,
-                Game.status == "scheduled",
+                status_filter,
             )
         )
         games = result.scalars().all()
