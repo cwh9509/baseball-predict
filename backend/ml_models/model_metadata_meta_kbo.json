@@ -1,6 +1,0 @@
-{
-  "version": "20260331",
-  "model_type": "stacking_meta",
-  "league": "KBO",
-  "path": "ml_models/meta-kbo-v20260331.pkl"
-}
