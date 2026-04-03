@@ -13,7 +13,7 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -209,8 +209,9 @@ class ETLRunner:
                     "home_score": stmt.excluded.home_score,
                     "away_score": stmt.excluded.away_score,
                     "winner_team_id": stmt.excluded.winner_team_id,
-                    "home_starter_name": stmt.excluded.home_starter_name,
-                    "away_starter_name": stmt.excluded.away_starter_name,
+                    # NULL이면 기존 값 유지 (라인업 감시기가 넣은 선발 덮어쓰기 방지)
+                    "home_starter_name": func.coalesce(stmt.excluded.home_starter_name, Game.home_starter_name),
+                    "away_starter_name": func.coalesce(stmt.excluded.away_starter_name, Game.away_starter_name),
                 },
             )
             result = await db.execute(stmt)
