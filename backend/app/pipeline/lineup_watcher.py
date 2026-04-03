@@ -122,8 +122,10 @@ async def run_for_date(target_date: date) -> None:
             if raw.external_game_id:
                 starter_map[raw.external_game_id] = (raw.home_starter_name, raw.away_starter_name)
 
+        from app.collectors.naver_lineup_collector import NaverLineupCollector
         from app.collectors.lineup_collector import KBOLineupCollector
-        lineup_collector = KBOLineupCollector()
+        naver_collector = NaverLineupCollector()
+        kbo_collector_lc = KBOLineupCollector()
 
         updated_count = 0
         for game in games:
@@ -131,16 +133,26 @@ async def run_for_date(target_date: date) -> None:
             home_starter = starters[0] if starters else None
             away_starter = starters[1] if starters else None
 
-            # 스케줄 API에서 선발 없으면 lineup collector로 폴백
+            # 스케줄 API에서 선발 없으면 Naver 우선, KBO 폴백
             if (not home_starter or not away_starter) and game.external_game_id:
                 try:
-                    lc_result = await lineup_collector.fetch_lineup(game.external_game_id)
+                    lc_result = await naver_collector.fetch_lineup(game.external_game_id)
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
-                        logger.debug(f"game_id={game.id} lineup collector 폴백: home={home_starter}, away={away_starter}")
+                        logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lc_result.get('source')})")
                 except Exception as e:
-                    logger.debug(f"game_id={game.id} lineup collector 폴백 실패: {e}")
+                    logger.debug(f"game_id={game.id} Naver collector 실패: {e}")
+
+            # Naver도 없으면 KBO lineup collector 폴백
+            if (not home_starter or not away_starter) and game.external_game_id:
+                try:
+                    lc_result = await kbo_collector_lc.fetch_lineup(game.external_game_id)
+                    if lc_result:
+                        home_starter = home_starter or lc_result.get("home_starter")
+                        away_starter = away_starter or lc_result.get("away_starter")
+                except Exception as e:
+                    logger.debug(f"game_id={game.id} KBO lineup collector 폴백 실패: {e}")
 
             lineup = {
                 "home_starter": home_starter,
