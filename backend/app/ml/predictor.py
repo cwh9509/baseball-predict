@@ -162,6 +162,15 @@ class Predictor:
             game.home_team_id if home_win_prob >= 0.5 else game.away_team_id
         )
 
+        # 승패 확률과 예상 스코어 일관성 보정
+        # 분류 모델(홈팀 승)인데 스코어가 홈팀 패로 나오면 스코어를 맞춰줌
+        if predicted_home_score is not None and predicted_away_score is not None:
+            home_wins_by_prob = home_win_prob >= 0.5
+            home_wins_by_score = predicted_home_score >= predicted_away_score
+            if home_wins_by_prob != home_wins_by_score:
+                # 점수를 교환하여 일관성 맞춤
+                predicted_home_score, predicted_away_score = predicted_away_score, predicted_home_score
+
         return {
             "game_id": game_id,
             "model_version": model_version,
