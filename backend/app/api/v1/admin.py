@@ -177,6 +177,27 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
     return {"status": "started", "date": str(d), "force": force}
 
 
+@router.delete("/predictions")
+async def delete_predictions(target_date: str = Query(...)):
+    """특정 날짜 예측 삭제"""
+    from sqlalchemy import delete
+    from app.core.database import AsyncSessionLocal
+    from app.models import Game, Prediction
+    from sqlalchemy import select
+    from datetime import datetime
+
+    d = datetime.strptime(target_date, "%Y-%m-%d").date()
+    async with AsyncSessionLocal() as db:
+        games = (await db.execute(select(Game).where(Game.game_date == d))).scalars().all()
+        deleted = 0
+        for game in games:
+            result = await db.execute(delete(Prediction).where(Prediction.game_id == game.id))
+            deleted += result.rowcount
+        await db.commit()
+    logger.info(f"예측 삭제 완료: {d} ({deleted}건)")
+    return {"status": "deleted", "date": str(d), "count": deleted}
+
+
 @router.post("/lineup")
 async def trigger_lineup(target_date: str = Query(default=None)):
     """라인업 수동 수집 트리거. target_date 없으면 오늘"""
