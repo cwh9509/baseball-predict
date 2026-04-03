@@ -225,15 +225,15 @@ class KBOCollector(BaseCollector):
 
     def _parse_pitcher_cell(self, text: str) -> tuple[Optional[str], Optional[str]]:
         """선발투수 셀 파싱 → (홈선발, 원정선발)
-        형식: "류현진 vs 원종현" 또는 "-" 또는 빈 문자열
+        KBO 스케줄 형식: "원정선발 vs 홈선발" (원정이 먼저)
+        game_id도 [원정코드][홈코드] 순이므로 동일 기준 적용
         """
         if not text or text in ("-", "vs", "VS"):
             return None, None
-        # "홈선발 vs 원정선발" 형식
         parts = re.split(r"\s+vs\s+", text, flags=re.IGNORECASE)
         if len(parts) == 2:
-            home = parts[0].strip() or None
-            away = parts[1].strip() or None
+            away = parts[0].strip() or None
+            home = parts[1].strip() or None
             return home, away
         return None, None
 
