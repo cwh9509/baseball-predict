@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.ballpark_features import get_ballpark_features
 from app.features.batter_features import get_lineup_features
 from app.features.elo_features import get_elo_features
-from app.features.pitcher_features import get_pitcher_features, get_team_rotation_era, get_kbo_starter_era
+from app.features.pitcher_features import get_pitcher_features, get_team_rotation_era, get_kbo_starter_era, get_kbo_starter_stats
 from app.features.team_features import get_team_form_features
 from app.features.weather_features import get_weather_features
 from app.models import Game, Player, Team
@@ -158,18 +158,20 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
             away_rotation_era = await get_team_rotation_era(away_team_obj.short_name, league, season, db=db)
         if league == "KBO":
             if home_team_obj and game.home_starter_name:
-                home_sp_era_indiv = await get_kbo_starter_era(
+                _home_kbo = await get_kbo_starter_stats(
                     game.home_starter_name, home_team_obj.short_name, season, db=db
                 )
+                home_sp_era_indiv = _home_kbo.get("era") if _home_kbo else None
                 # 투구 방향이 아직 없으면 DB에서 조회
                 if home_sp_throws is None:
                     home_sp_throws = await _get_kbo_pitcher_handedness(
                         db, game.home_starter_name, home_team_obj.short_name, season
                     )
             if away_team_obj and game.away_starter_name:
-                away_sp_era_indiv = await get_kbo_starter_era(
+                _away_kbo = await get_kbo_starter_stats(
                     game.away_starter_name, away_team_obj.short_name, season, db=db
                 )
+                away_sp_era_indiv = _away_kbo.get("era") if _away_kbo else None
                 if away_sp_throws is None:
                     away_sp_throws = await _get_kbo_pitcher_handedness(
                         db, game.away_starter_name, away_team_obj.short_name, season
@@ -331,6 +333,21 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "is_day_game": int(ballpark.get("is_day_game", False)),
         "days_since_season_start": ballpark.get("days_since_season_start"),
     }
+
+    # KBO: 개인 투수 스탯이 있으면 snapshot의 imputed 리그 평균 교체 (화면 표시용)
+    if league == "KBO":
+        if locals().get("_home_kbo"):
+            snapshot["home_sp_era_season"] = _home_kbo["era"]
+            snapshot["home_sp_whip_season"] = _home_kbo["whip"]
+            snapshot["home_sp_k9_season"] = _home_kbo["k9"]
+            snapshot["home_sp_era_L3"] = _home_kbo["era"]
+            snapshot["home_sp_is_imputed"] = False
+        if locals().get("_away_kbo"):
+            snapshot["away_sp_era_season"] = _away_kbo["era"]
+            snapshot["away_sp_whip_season"] = _away_kbo["whip"]
+            snapshot["away_sp_k9_season"] = _away_kbo["k9"]
+            snapshot["away_sp_era_L3"] = _away_kbo["era"]
+            snapshot["away_sp_is_imputed"] = False
 
     # 누수 방지 검사: 점수/승패 컬럼 포함 시 오류
     _assert_no_leakage(snapshot)

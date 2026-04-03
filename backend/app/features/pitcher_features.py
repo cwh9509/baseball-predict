@@ -26,8 +26,19 @@ async def get_kbo_starter_era(
     season: int,
     db: Optional[AsyncSession] = None,
 ) -> Optional[float]:
-    """KBO 선발투수 개인 ERA — DB에서 조회 (로컬 업로드된 statiz 스탯)
-    이름 미지정 또는 데이터 없으면 None 반환 → 팀 로테이션 ERA 폴백
+    """KBO 선발투수 개인 ERA 단일값 반환 (하위 호환)"""
+    stats = await get_kbo_starter_stats(name, team_short, season, db)
+    return stats.get("era") if stats else None
+
+
+async def get_kbo_starter_stats(
+    name: Optional[str],
+    team_short: str,
+    season: int,
+    db: Optional[AsyncSession] = None,
+) -> Optional[dict]:
+    """KBO 선발투수 개인 스탯 (era, whip, k9) 반환
+    이름 미지정 또는 데이터 없으면 None 반환
     현 시즌 데이터 없으면 직전 시즌으로 폴백
     """
     if not name:
@@ -35,14 +46,13 @@ async def get_kbo_starter_era(
     if db is not None:
         from app.models.kbo_stats import KboPitcherStat
         for s in [season, season - 1]:
-            # 이름+팀 일치 우선, 이름만 일치 차선
             for extra_cond in [
                 and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),
                 and_(KboPitcherStat.name == name, KboPitcherStat.season == s),
             ]:
                 row = (await db.execute(select(KboPitcherStat).where(extra_cond))).scalar_one_or_none()
                 if row:
-                    return row.era
+                    return {"era": row.era, "whip": row.whip, "k9": row.k9}
     return None
 
 
