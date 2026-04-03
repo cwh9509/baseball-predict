@@ -124,10 +124,8 @@ class Predictor:
         home_score_model, away_score_model, _ = score_tuple
         if home_score_model is not None and away_score_model is not None:
             try:
-                predicted_home_score = round(float(home_score_model.predict(feature_2d)[0]))
-                predicted_away_score = round(float(away_score_model.predict(feature_2d)[0]))
-                predicted_home_score = max(0, predicted_home_score)
-                predicted_away_score = max(0, predicted_away_score)
+                predicted_home_score = max(1, round(float(home_score_model.predict(feature_2d)[0])))
+                predicted_away_score = max(1, round(float(away_score_model.predict(feature_2d)[0])))
                 score_diff = float(predicted_home_score - predicted_away_score)
             except Exception as e:
                 logger.warning(f"스코어 예측 실패 (game_id={game_id}): {e}")

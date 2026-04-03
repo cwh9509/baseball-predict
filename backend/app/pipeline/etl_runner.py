@@ -62,8 +62,31 @@ class ETLRunner:
             # 1. 팀 데이터 초기화 (최초 실행 시)
             await self._ensure_teams(db)
 
-            # 2. 경기 일정/결과 수집 → upsert
+            # 2. 경기 일정/결과 수집 → upsert (statiz 실패 시 Naver 폴백)
             games_raw = await self.collector.fetch_schedule(target_date)
+            if not games_raw:
+                logger.warning(f"{target_date}: statiz 일정 수집 실패, Naver 폴백 시도")
+                from app.collectors.naver_lineup_collector import NaverLineupCollector
+                from app.collectors.base_collector import GameRaw
+                naver = NaverLineupCollector()
+                naver_games = await naver.fetch_schedule(target_date)
+                if naver_games:
+                    games_raw = [
+                        GameRaw(
+                            league="KBO",
+                            game_date=g["game_date"],
+                            home_team_short=g["home_team_short"],
+                            away_team_short=g["away_team_short"],
+                            status=g["status"],
+                            home_score=g.get("home_score"),
+                            away_score=g.get("away_score"),
+                            external_game_id=g.get("external_game_id"),
+                            venue=g.get("venue", ""),
+                            game_time_local=g.get("game_time"),
+                        )
+                        for g in naver_games
+                    ]
+                    logger.info(f"{target_date}: Naver에서 {len(games_raw)}경기 수집")
             if not games_raw:
                 logger.info(f"{target_date}: 경기 없음")
                 return

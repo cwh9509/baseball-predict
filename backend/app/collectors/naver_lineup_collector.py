@@ -1,22 +1,22 @@
 """
-네이버 스포츠 KBO 라인업 수집기
+네이버 스포츠 KBO 라인업/일정 수집기
 - api-gw.sports.naver.com 사용 (서버 IP 차단 없음)
+- schedule 엔드포인트: KBO 일정 수집 (statiz 403 폴백용)
 - preview 엔드포인트: 선발투수 (경기 전부터 접근 가능)
 - lineup 엔드포인트: 타순 (공식 발표 후 접근 가능)
 
 Naver game ID 규칙:
-  kbo_game_id[:12] + "0" + str(year)
-  예: 20260403NCHT0 → 20260403NCHT02026
+  YYYYMMDD{away_code}{home_code}0{year}
+  예: 20260403NCHT02026 (NC 원정, HT 홈)
 
 API 라벨 주의:
   awayStarter → 실제 원정팀 선발 (game_id[8:10])
   homeStarter → 실제 홈팀 선발  (game_id[10:12])
-  awayTeamLineUp → 원정팀 타순
-  homeTeamLineUp → 홈팀 타순
 """
 import asyncio
 import logging
 import time
+from datetime import date
 from typing import Optional
 
 import httpx
@@ -24,11 +24,40 @@ import httpx
 logger = logging.getLogger(__name__)
 
 NAVER_API_BASE = "https://api-gw.sports.naver.com/schedule/games"
+NAVER_SCHEDULE_BASE = "https://api-gw.sports.naver.com/schedule/games"
 NAVER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
     "Referer": "https://m.sports.naver.com/",
     "Origin": "https://m.sports.naver.com",
     "Accept": "application/json",
+}
+
+# Naver 팀코드 → DB short_name
+NAVER_CODE_TO_SHORT: dict[str, str] = {
+    "HH": "한화",
+    "OB": "두산",
+    "SS": "삼성",
+    "LG": "LG",
+    "SK": "SSG",
+    "WO": "키움",
+    "KT": "KT",
+    "HT": "KIA",
+    "LT": "롯데",
+    "NC": "NC",
+}
+
+# 구장명 매핑 (팀코드 → 홈구장)
+NAVER_CODE_TO_VENUE: dict[str, str] = {
+    "HH": "한화생명 이글스파크",
+    "OB": "잠실야구장",
+    "SS": "라이온즈 파크",
+    "LG": "잠실야구장",
+    "SK": "인천SSG랜더스필드",
+    "WO": "고척스카이돔",
+    "KT": "수원KT위즈파크",
+    "HT": "광주-기아 챔피언스 필드",
+    "LT": "사직야구장",
+    "NC": "창원NC파크",
 }
 
 
@@ -170,3 +199,87 @@ class NaverLineupCollector:
             "away_lineup": away_lineup,
             "source": "naver_preview",
         }
+
+    def fetch_schedule_sync(self, target_date: date) -> list[dict]:
+        """
+        Naver API에서 KBO 일정 수집 (statiz 403 폴백용)
+
+        Returns list of:
+          {
+            "external_game_id": "20260403NCHT0",
+            "home_team_short": "KIA",
+            "away_team_short": "NC",
+            "game_date": date,
+            "game_time": "18:30",
+            "status": "scheduled" | "final" | "in_progress",
+            "home_score": int | None,
+            "away_score": int | None,
+            "venue": str,
+          }
+        """
+        date_str = target_date.strftime("%Y%m%d")
+        try:
+            resp = httpx.get(
+                NAVER_SCHEDULE_BASE,
+                params={"gameDate": date_str, "categoryId": "kbo"},
+                headers=NAVER_HEADERS,
+                timeout=10,
+                follow_redirects=True,
+            )
+            if resp.status_code != 200:
+                logger.warning(f"Naver 스케줄 API 응답 오류: {resp.status_code}")
+                return []
+            games = resp.json().get("result", {}).get("games", [])
+        except Exception as e:
+            logger.warning(f"Naver 스케줄 수집 실패: {e}")
+            return []
+
+        results = []
+        for g in games:
+            game_id = g.get("gameId", "")
+            if len(game_id) < 12:
+                continue
+
+            # gameId: YYYYMMDD{away_code}{home_code}0{year}
+            # position 8-10 = away team code, 10-12 = home team code
+            away_code = game_id[8:10]
+            home_code = game_id[10:12]
+            home_short = NAVER_CODE_TO_SHORT.get(home_code)
+            away_short = NAVER_CODE_TO_SHORT.get(away_code)
+            if not home_short or not away_short:
+                continue
+
+            status_code = g.get("statusCode", "BEFORE")
+            if status_code == "BEFORE":
+                status = "scheduled"
+            elif status_code in ("LIVE", "STARTED"):
+                status = "in_progress"
+            elif status_code in ("RESULT", "FINAL", "CLOSE"):
+                status = "final"
+            else:
+                status = "scheduled"
+
+            game_dt = g.get("gameDateTime", "")
+            game_time = game_dt[11:16] if len(game_dt) >= 16 else None
+
+            # external_game_id: Naver gameId에서 마지막 4자리(연도) 제거
+            # 20260403NCHT02026 → 20260403NCHT0
+            ext_id = game_id[:12] + "0" if len(game_id) >= 12 else None
+
+            results.append({
+                "external_game_id": ext_id,
+                "home_team_short": home_short,
+                "away_team_short": away_short,
+                "game_date": target_date,
+                "game_time": game_time,
+                "status": status,
+                "home_score": g.get("homeTeamScore") if status == "final" else None,
+                "away_score": g.get("awayTeamScore") if status == "final" else None,
+                "venue": NAVER_CODE_TO_VENUE.get(home_code, ""),
+            })
+
+        return results
+
+    async def fetch_schedule(self, target_date: date) -> list[dict]:
+        """비동기 래퍼"""
+        return await asyncio.to_thread(self.fetch_schedule_sync, target_date)
