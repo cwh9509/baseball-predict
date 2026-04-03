@@ -9,9 +9,9 @@ Naver game ID 규칙:
   YYYYMMDD{away_code}{home_code}0{year}
   예: 20260403NCHT02026 (NC 원정, HT 홈)
 
-API 라벨 주의:
-  awayStarter → 실제 원정팀 선발 (game_id[8:10])
+API 라벨: 실제 홈/원정과 일치
   homeStarter → 실제 홈팀 선발  (game_id[10:12])
+  awayStarter → 실제 원정팀 선발 (game_id[8:10])
 """
 import asyncio
 import logging
@@ -139,22 +139,22 @@ class NaverLineupCollector:
 
     def _parse_lineup_data(self, lineup_data: dict) -> Optional[dict]:
         """lineup 엔드포인트 응답 파싱 (타순 + 선발투수)"""
-        # Naver KBO는 reversedHomeAway=True — 라벨이 실제와 반대
-        # homeBatters/homeStartingPitcher → 실제 원정팀, away → 실제 홈팀
-        away_batters = lineup_data.get("homeBatters") or lineup_data.get("homeLineUp") or []
-        home_batters = lineup_data.get("awayBatters") or lineup_data.get("awayLineUp") or []
-        away_pitcher = lineup_data.get("homeStartingPitcher") or {}
-        home_pitcher = lineup_data.get("awayStartingPitcher") or {}
+        # Naver API 라벨은 실제 홈/원정과 일치 (reversedHomeAway 없음)
+        # homeStartingPitcher → 실제 홈팀 선발, awayStartingPitcher → 실제 원정팀 선발
+        home_batters = lineup_data.get("homeBatters") or lineup_data.get("homeLineUp") or []
+        away_batters = lineup_data.get("awayBatters") or lineup_data.get("awayLineUp") or []
+        home_pitcher = lineup_data.get("homeStartingPitcher") or {}
+        away_pitcher = lineup_data.get("awayStartingPitcher") or {}
 
-        away_starter = (
-            away_pitcher.get("name") or
-            away_pitcher.get("playerName") or
-            away_pitcher.get("playerInfo", {}).get("name")
-        )
         home_starter = (
             home_pitcher.get("name") or
             home_pitcher.get("playerName") or
             home_pitcher.get("playerInfo", {}).get("name")
+        )
+        away_starter = (
+            away_pitcher.get("name") or
+            away_pitcher.get("playerName") or
+            away_pitcher.get("playerInfo", {}).get("name")
         )
 
         home_lineup = [
@@ -179,13 +179,13 @@ class NaverLineupCollector:
 
     def _parse_preview_data(self, preview: dict) -> Optional[dict]:
         """preview 엔드포인트 응답 파싱 (선발투수 위주)"""
-        # Naver KBO는 reversedHomeAway=True — 라벨이 실제와 반대
-        # homeStarter → 실제 원정팀 선발, awayStarter → 실제 홈팀 선발
-        away_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
-        home_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
+        # Naver API 라벨은 실제 홈/원정과 일치
+        # homeStarter → 실제 홈팀 선발, awayStarter → 실제 원정팀 선발
+        home_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
+        away_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
 
-        away_starter = away_starter_info.get("name")
         home_starter = home_starter_info.get("name")
+        away_starter = away_starter_info.get("name")
 
         # preview의 타순은 3명만 있어서 실제 타순으로 사용하지 않음
         home_lineup = []

@@ -110,7 +110,7 @@ async def get_history(
         predictions.append({
             "game_id": game.id,
             "game_date": str(game.game_date),
-            "matchup": f"{home_team.name if home_team else '?'} vs {away_team.name if away_team else '?'}",
+            "matchup": f"{away_team.name if away_team else '?'} vs {home_team.name if home_team else '?'}",
             "predicted_winner": winner_team.name if winner_team else "알 수 없음",
             "actual_winner": actual_winner.name if actual_winner else None,
             "home_win_prob": home_win_prob,

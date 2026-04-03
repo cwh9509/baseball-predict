@@ -28,16 +28,16 @@ export default function GameCard({ game, currentDate, league }: Props) {
         "bg-white rounded-xl border-2 shadow-sm p-4 hover:shadow-md transition-shadow cursor-pointer",
         BORDER_COLOR[tier]
       )}>
-        {/* 팀 매치업 */}
+        {/* 팀 매치업 (원정 vs 홈) */}
         <div className="flex items-center justify-between mb-3">
-          <div className="text-center flex-1">
-            <div className="font-bold text-lg">{game.home_team.short_name}</div>
-            <div className="text-xs text-gray-500 truncate max-w-24">{game.home_team.name}</div>
-          </div>
-          <div className="px-3 text-gray-400 font-light text-sm">vs</div>
           <div className="text-center flex-1">
             <div className="font-bold text-lg">{game.away_team.short_name}</div>
             <div className="text-xs text-gray-500 truncate max-w-24">{game.away_team.name}</div>
+          </div>
+          <div className="px-3 text-gray-400 font-light text-sm">vs</div>
+          <div className="text-center flex-1">
+            <div className="font-bold text-lg">{game.home_team.short_name}</div>
+            <div className="text-xs text-gray-500 truncate max-w-24">{game.home_team.name}</div>
           </div>
         </div>
 
@@ -47,6 +47,7 @@ export default function GameCard({ game, currentDate, league }: Props) {
             homeProb={game.prediction.home_win_prob}
             homeTeam={game.home_team.short_name}
             awayTeam={game.away_team.short_name}
+            awayLeft
           />
         )}
 

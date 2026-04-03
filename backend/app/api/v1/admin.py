@@ -199,8 +199,8 @@ async def delete_predictions(target_date: str = Query(...)):
 
 
 @router.post("/lineup")
-async def trigger_lineup(target_date: str = Query(default=None)):
-    """라인업 수동 수집 트리거. target_date 없으면 오늘"""
+async def trigger_lineup(target_date: str = Query(default=None), force: bool = Query(default=False)):
+    """라인업 수동 수집 트리거. force=true면 lineup_locked 초기화 후 재수집"""
     import asyncio
     from datetime import date as date_cls, datetime
 
@@ -209,7 +209,21 @@ async def trigger_lineup(target_date: str = Query(default=None)):
     else:
         d = date_cls.today()
 
-    logger.info(f"수동 트리거: 라인업 수집 시작 ({d})")
+    if force:
+        from sqlalchemy import update as sa_update
+        from app.core.database import AsyncSessionLocal
+        from app.models import Game
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                sa_update(Game)
+                .where(Game.game_date == d, Game.league == "KBO", Game.status == "scheduled")
+                .values(lineup_locked=False, lineup_locked_at=None,
+                        home_starter_name=None, away_starter_name=None)
+            )
+            await db.commit()
+        logger.info(f"라인업 초기화 완료: {d}")
+
+    logger.info(f"수동 트리거: 라인업 수집 시작 ({d}, force={force})")
 
     async def _run():
         from app.pipeline.lineup_watcher import run_for_date
@@ -217,7 +231,7 @@ async def trigger_lineup(target_date: str = Query(default=None)):
         logger.info(f"라인업 수집 완료: {d}")
 
     asyncio.create_task(_run())
-    return {"status": "started", "date": str(d)}
+    return {"status": "started", "date": str(d), "force": force}
 
 
 class LineupPlayerIn(BaseModel):

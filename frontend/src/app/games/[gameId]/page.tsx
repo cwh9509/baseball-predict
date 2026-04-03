@@ -78,19 +78,20 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               </span>
             </div>
 
-            {/* 승리 확률 바 */}
+            {/* 승리 확률 바 (원정 vs 홈) */}
             <WinProbabilityBar
               homeProb={prediction.home_win_prob}
-              homeTeam="홈팀"
-              awayTeam="원정팀"
+              homeTeam={prediction.home_team?.short_name ?? "홈팀"}
+              awayTeam={prediction.away_team?.short_name ?? "원정팀"}
+              awayLeft
             />
 
-            {/* 예상 스코어 */}
+            {/* 예상 스코어 (원정 – 홈) */}
             {prediction.predicted_home_score != null && prediction.predicted_away_score != null && (
               <div className="mt-3 text-center">
                 <p className="text-gray-400 text-xs mb-1">예상 스코어</p>
                 <p className="text-2xl font-bold text-gray-800">
-                  {prediction.predicted_home_score} <span className="text-gray-400 text-lg">–</span> {prediction.predicted_away_score}
+                  {prediction.predicted_away_score} <span className="text-gray-400 text-lg">–</span> {prediction.predicted_home_score}
                 </p>
               </div>
             )}
@@ -111,8 +112,8 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           {prediction.lineup && (
             <LineupCard
               lineup={prediction.lineup}
-              homeTeamName={prediction.predicted_winner.name}
-              awayTeamName="원정팀"
+              homeTeamName={prediction.home_team?.name ?? "홈팀"}
+              awayTeamName={prediction.away_team?.name ?? "원정팀"}
             />
           )}
           {!prediction.lineup && (

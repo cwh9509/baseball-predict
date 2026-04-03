@@ -136,13 +136,15 @@ async def run_for_date(target_date: date) -> None:
             away_starter = starters[1] if starters else None
 
             # 스케줄 API에서 선발 없으면 Naver 우선, KBO 폴백
+            lineup_source = "schedule" if (home_starter and away_starter) else None
             if (not home_starter or not away_starter) and game.external_game_id:
                 try:
                     lc_result = await naver_collector.fetch_lineup(game.external_game_id)
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
-                        logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lc_result.get('source')})")
+                        lineup_source = lc_result.get("source")  # naver_lineup or naver_preview
+                        logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lineup_source})")
                 except Exception as e:
                     logger.debug(f"game_id={game.id} Naver collector 실패: {e}")
 
@@ -153,14 +155,18 @@ async def run_for_date(target_date: date) -> None:
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
+                        lineup_source = lc_result.get("source")
                 except Exception as e:
                     logger.debug(f"game_id={game.id} KBO lineup collector 폴백 실패: {e}")
 
+            # naver_preview는 예상값 — lineup_locked 설정 안 함
+            is_confirmed = lineup_source != "naver_preview"
             lineup = {
                 "home_starter": home_starter,
                 "away_starter": away_starter,
                 "home_lineup": [],
                 "away_lineup": [],
+                "confirmed": is_confirmed,
             }
             changed = await _update_game_lineup(db, game, lineup)
             if changed:
@@ -205,10 +211,11 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
         updates["away_lineup_json"] = away_lineup
         changed = True
 
-    # 라인업 확정 — 양쪽 선발투수 확정되면 locked (타순은 부가 정보)
+    # 라인업 확정 — 양쪽 선발투수 확정되고, preview가 아닌 실제 소스일 때만 locked
+    confirmed = lineup.get("confirmed", True)
     final_home_starter = home_starter or game.home_starter_name
     final_away_starter = away_starter or game.away_starter_name
-    if final_home_starter and final_away_starter and not game.lineup_locked:
+    if confirmed and final_home_starter and final_away_starter and not game.lineup_locked:
         updates["lineup_locked"] = True
         updates["lineup_locked_at"] = now
 
