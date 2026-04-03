@@ -25,6 +25,15 @@ export default function DateNavigator({ currentDate, league }: Props) {
 
   return (
     <div className="flex items-center gap-2">
+      {!isToday && (
+        <button
+          onClick={() => go(today)}
+          className="px-3 py-1.5 text-sm border border-primary text-primary rounded-lg hover:bg-primary hover:text-white transition-colors"
+        >
+          오늘
+        </button>
+      )}
+
       <button
         onClick={() => go(addDays(currentDate, -1))}
         className="p-2 rounded-lg border border-gray-300 hover:border-primary hover:text-primary transition-colors text-gray-500"
@@ -47,15 +56,6 @@ export default function DateNavigator({ currentDate, league }: Props) {
       >
         ›
       </button>
-
-      {!isToday && (
-        <button
-          onClick={() => go(today)}
-          className="px-3 py-1.5 text-sm border border-primary text-primary rounded-lg hover:bg-primary hover:text-white transition-colors"
-        >
-          오늘
-        </button>
-      )}
     </div>
   )
 }
