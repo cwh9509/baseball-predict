@@ -139,11 +139,12 @@ class NaverLineupCollector:
 
     def _parse_lineup_data(self, lineup_data: dict) -> Optional[dict]:
         """lineup 엔드포인트 응답 파싱 (타순 + 선발투수)"""
-        # Naver 라벨: awayBatters=원정타순, homeBatters=홈타순
-        away_batters = lineup_data.get("awayBatters") or lineup_data.get("awayLineUp") or []
-        home_batters = lineup_data.get("homeBatters") or lineup_data.get("homeLineUp") or []
-        away_pitcher = lineup_data.get("awayStartingPitcher") or {}
-        home_pitcher = lineup_data.get("homeStartingPitcher") or {}
+        # Naver KBO는 reversedHomeAway=True — 라벨이 실제와 반대
+        # homeBatters/homeStartingPitcher → 실제 원정팀, away → 실제 홈팀
+        away_batters = lineup_data.get("homeBatters") or lineup_data.get("homeLineUp") or []
+        home_batters = lineup_data.get("awayBatters") or lineup_data.get("awayLineUp") or []
+        away_pitcher = lineup_data.get("homeStartingPitcher") or {}
+        home_pitcher = lineup_data.get("awayStartingPitcher") or {}
 
         away_starter = (
             away_pitcher.get("name") or
@@ -178,9 +179,10 @@ class NaverLineupCollector:
 
     def _parse_preview_data(self, preview: dict) -> Optional[dict]:
         """preview 엔드포인트 응답 파싱 (선발투수 위주)"""
-        # Naver preview: awayStarter=원정선발, homeStarter=홈선발
-        away_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
-        home_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
+        # Naver KBO는 reversedHomeAway=True — 라벨이 실제와 반대
+        # homeStarter → 실제 원정팀 선발, awayStarter → 실제 홈팀 선발
+        away_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
+        home_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
 
         away_starter = away_starter_info.get("name")
         home_starter = home_starter_info.get("name")
