@@ -80,6 +80,17 @@ def create_app() -> FastAPI:
                 from app.tasks.pre_game_predict import run
                 await run()
 
+        # 모델 파일 없으면 자동 재학습 (Railway 재배포 후 ephemeral 파일 소실 대응)
+        from app.ml.model_registry import load_latest_model
+        model, _ = load_latest_model(settings.league)
+        if model is None:
+            logger.warning("모델 파일 없음 — 자동 재학습 시작 (배포 후 첫 실행)")
+            async def _auto_retrain():
+                from app.tasks.model_retrain import run as retrain_run
+                await retrain_run()
+            import asyncio
+            asyncio.create_task(_auto_retrain())
+
         # 향후 7일 경기 일정 수집
         from app.pipeline.etl_runner import ETLRunner
         runner = ETLRunner()
