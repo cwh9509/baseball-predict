@@ -36,6 +36,19 @@ async def collect_and_upload(backend_url: str, season: int):
     else:
         logger.info(f"투수 {len(pitchers)}명 수집 완료")
 
+    # ── 선발투수 최근 14일 ERA/WHIP 수집 ───────────────────
+    logger.info("선발투수 최근 14일 ERA/WHIP 수집 중...")
+    recent_pitchers = await collector.fetch_pitcher_stats_recent(season, days=14)
+    # name+team → {recent_era, recent_whip} 맵
+    recent_map: dict[str, dict] = {}
+    for rp in recent_pitchers:
+        key = f"{rp.name}_{rp.team_short}"
+        recent_map[key] = {"recent_era": rp.era, "recent_whip": rp.whip}
+    if recent_map:
+        logger.info(f"최근 투수 통계: {len(recent_map)}명")
+    else:
+        logger.warning("최근 투수 통계 수집 실패 — statiz sdate/edate 파라미터 미지원 가능")
+
     # ── 팀 타선 스탯 수집 ──────────────────────────────────
     KBO_TEAMS = ["삼성", "KIA", "롯데", "LG", "두산", "한화", "SSG", "키움", "NC", "KT"]
     team_batting = []
@@ -91,6 +104,7 @@ async def collect_and_upload(backend_url: str, season: int):
                 "k9": p.k9,
                 "ip": p.ip,
                 "handedness": p.handedness,
+                **recent_map.get(f"{p.name}_{p.team_short}", {}),
             }
             for p in pitchers
         ],

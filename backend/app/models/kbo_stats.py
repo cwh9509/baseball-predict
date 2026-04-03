@@ -20,6 +20,8 @@ class KboPitcherStat(Base):
     k9: Mapped[float] = mapped_column(Float, nullable=False)
     ip: Mapped[float] = mapped_column(Float, nullable=False)
     handedness: Mapped[str] = mapped_column(String(2), nullable=True)   # "L" or "R"
+    recent_era: Mapped[float] = mapped_column(Float, nullable=True)     # 최근 14일 ERA
+    recent_whip: Mapped[float] = mapped_column(Float, nullable=True)    # 최근 14일 WHIP
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 

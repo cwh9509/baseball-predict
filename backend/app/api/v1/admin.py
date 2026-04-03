@@ -24,7 +24,9 @@ class PitcherStatIn(BaseModel):
     whip: float
     k9: float
     ip: float
-    handedness: Optional[str] = None   # "L" or "R"
+    handedness: Optional[str] = None       # "L" or "R"
+    recent_era: Optional[float] = None     # 최근 14일 ERA
+    recent_whip: Optional[float] = None    # 최근 14일 WHIP
 
 class TeamBattingStatIn(BaseModel):
     team_short: str
@@ -66,9 +68,17 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
                         era=p.era, whip=p.whip, k9=p.k9, ip=p.ip)
             if p.handedness:
                 vals["handedness"] = p.handedness
+            if p.recent_era is not None:
+                vals["recent_era"] = p.recent_era
+            if p.recent_whip is not None:
+                vals["recent_whip"] = p.recent_whip
             upd = {"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip}
             if p.handedness:
                 upd["handedness"] = p.handedness
+            if p.recent_era is not None:
+                upd["recent_era"] = p.recent_era
+            if p.recent_whip is not None:
+                upd["recent_whip"] = p.recent_whip
             stmt = insert(KboPitcherStat).values(**vals).on_conflict_do_update(
                 constraint="uq_kbo_pitcher", set_=upd,
             )

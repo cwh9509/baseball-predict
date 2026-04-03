@@ -77,7 +77,7 @@ _PITCHER_BATTER_COLUMNS = [
     "lineup_ops_diff",
 ]
 
-# KBO 팀 로테이션 ERA + 불펜 ERA + 선발 투구 방향 + 타선 스플릿 OPS
+# KBO 팀 로테이션 ERA + 불펜 ERA + 선발 투구 방향 + 타선 스플릿 OPS + 선발 최근 폼
 _KBO_ROTATION_COLUMNS = [
     "home_rotation_era", "away_rotation_era", "rotation_era_diff",
     "home_bullpen_era", "away_bullpen_era", "bullpen_era_diff",
@@ -85,6 +85,9 @@ _KBO_ROTATION_COLUMNS = [
     "home_sp_throws_is_lhp", "away_sp_throws_is_lhp",
     # 상대 선발 투구 방향 기준 팀 타선 스플릿 OPS
     "home_lineup_split_ops", "away_lineup_split_ops", "lineup_split_ops_diff",
+    # 선발투수 최근 14일 ERA/WHIP (DB에 없으면 NaN)
+    "home_sp_recent_era", "away_sp_recent_era", "sp_recent_era_diff",
+    "home_sp_recent_whip", "away_sp_recent_whip",
 ]
 
 # KBO: 팀 폼 + 팀 로테이션 ERA + 날씨 + 구장
@@ -176,6 +179,21 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
                 home_bullpen_era = await _get_kbo_bullpen_era(db, home_team_obj.short_name, season)
             if away_team_obj:
                 away_bullpen_era = await _get_kbo_bullpen_era(db, away_team_obj.short_name, season)
+
+    # KBO 선발투수 최근 14일 ERA/WHIP
+    home_sp_recent_era = None
+    away_sp_recent_era = None
+    home_sp_recent_whip = None
+    away_sp_recent_whip = None
+    if league == "KBO":
+        if home_team_obj and game.home_starter_name:
+            recent = await _get_kbo_starter_recent_stats(db, game.home_starter_name, home_team_obj.short_name, season)
+            home_sp_recent_era = recent[0]
+            home_sp_recent_whip = recent[1]
+        if away_team_obj and game.away_starter_name:
+            recent = await _get_kbo_starter_recent_stats(db, game.away_starter_name, away_team_obj.short_name, season)
+            away_sp_recent_era = recent[0]
+            away_sp_recent_whip = recent[1]
 
     # --- 피처 수집 (병렬 가능하지만 단순화를 위해 순차 실행) ---
     home_form = await get_team_form_features(
@@ -291,6 +309,12 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
             home_lineup.get("lineup_vs_lhp_ops") if away_sp_throws == "L" else home_lineup.get("lineup_vs_rhp_ops"),
             away_lineup.get("lineup_vs_lhp_ops") if home_sp_throws == "L" else away_lineup.get("lineup_vs_rhp_ops"),
         ),
+        # 선발투수 최근 14일 ERA/WHIP
+        "home_sp_recent_era": home_sp_recent_era,
+        "away_sp_recent_era": away_sp_recent_era,
+        "sp_recent_era_diff": _safe_diff(home_sp_recent_era, away_sp_recent_era),
+        "home_sp_recent_whip": home_sp_recent_whip,
+        "away_sp_recent_whip": away_sp_recent_whip,
         # 날씨
         "temperature_c": weather.get("temperature_c"),
         "is_hot": int(weather.get("is_hot", False)),
@@ -353,6 +377,23 @@ async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: s
         if row and row.handedness:
             return row.handedness
     return None
+
+
+async def _get_kbo_starter_recent_stats(
+    db: AsyncSession, name: str, team_short: str, season: int
+) -> tuple[Optional[float], Optional[float]]:
+    """KBO 선발투수 최근 14일 ERA, WHIP 조회. 없으면 (None, None)"""
+    from app.models.kbo_stats import KboPitcherStat
+    from sqlalchemy import and_
+    for s in [season, season - 1]:
+        for cond in [
+            and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),
+            and_(KboPitcherStat.name == name, KboPitcherStat.season == s),
+        ]:
+            row = (await db.execute(select(KboPitcherStat).where(cond))).scalar_one_or_none()
+            if row and (row.recent_era is not None or row.recent_whip is not None):
+                return row.recent_era, row.recent_whip
+    return None, None
 
 
 async def _get_kbo_bullpen_era(db: AsyncSession, team_short: str, season: int) -> Optional[float]:

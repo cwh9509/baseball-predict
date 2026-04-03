@@ -288,6 +288,122 @@ class KBOCollector(BaseCollector):
         """시즌 전체 투수 통계 스크래핑 (캐시 지원)"""
         return await asyncio.to_thread(self._fetch_pitcher_stats_sync, season)
 
+    async def fetch_pitcher_stats_recent(self, season: int, days: int = 14) -> list[PitcherStatsRaw]:
+        """statiz 날짜 범위 투수 통계 수집 (최근 N일 ERA/WHIP)"""
+        from datetime import timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        return await asyncio.to_thread(
+            self._fetch_pitcher_stats_daterange_sync, season, start_date, end_date
+        )
+
+    def _fetch_pitcher_stats_daterange_sync(
+        self, season: int, start_date: date, end_date: date
+    ) -> list[PitcherStatsRaw]:
+        """statiz.co.kr 날짜 범위 투수 통계 스크래핑
+        URL: /stats/?m=main&m2=pitching&year={season}&sdate=YYYY-MM-DD&edate=YYYY-MM-DD&ipp=500
+        """
+        import dataclasses
+        from bs4 import BeautifulSoup
+
+        sdate = start_date.strftime("%Y-%m-%d")
+        edate = end_date.strftime("%Y-%m-%d")
+        results: list[PitcherStatsRaw] = []
+        base_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+            "Referer": STATIZ_BASE_URL,
+        }
+
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
+                if not self._statiz_login(client):
+                    logger.warning(f"statiz 로그인 실패 — 최근 {(end_date - start_date).days}일 투수 통계 수집 불가")
+                    return []
+
+                url = (
+                    f"{STATIZ_STATS_URL}?m=main&m2=pitching"
+                    f"&year={season}&sdate={sdate}&edate={edate}&ipp=500"
+                )
+                resp = client.get(url)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "lxml")
+                table = soup.find("table")
+                if not table:
+                    logger.warning(f"statiz: 날짜범위 투수 통계 테이블 없음 ({sdate}~{edate})")
+                    return []
+
+                rows = table.find_all("tr")
+                if len(rows) < 2:
+                    return []
+
+                header_cells = rows[0].find_all(["th", "td"])
+                headers = [h.get_text(strip=True) for h in header_cells]
+                idx: dict[str, int] = {h: i for i, h in enumerate(headers)}
+
+                i_name = idx.get("Name", 1)
+                i_team = idx.get("Team", 2)
+                i_ip   = idx.get("IP", 14)
+                i_so   = idx.get("SO", 26)
+                i_era  = idx.get("ERA", 30)
+                i_whip = idx.get("WHIP", 35)
+
+                for tr in rows[1:]:
+                    raw_cells = tr.find_all(["td", "th"])
+                    cells = [td.get_text(strip=True) for td in raw_cells]
+                    if not cells or cells[0] in ("", "WAR") or not cells[0].isdigit():
+                        continue
+                    if len(cells) < max(i_era, i_whip) + 1:
+                        continue
+                    try:
+                        name = cells[i_name]
+                        team_short = ""
+                        if i_team < len(raw_cells):
+                            img = raw_cells[i_team].find("img")
+                            if img:
+                                m = re.search(r"/(\d+)\.svg", img.get("src", ""))
+                                if m:
+                                    team_short = STATIZ_TEAM_CODE_TO_SHORT.get(m.group(1), "")
+                        if not team_short:
+                            team_short = KBO_TEAM_NAME_TO_SHORT.get(cells[i_team].strip(), "")
+
+                        ip = self._parse_innings(cells[i_ip])
+                        if ip < 1:
+                            continue
+
+                        era_s  = cells[i_era]
+                        whip_s = cells[i_whip]
+                        so_s   = cells[i_so] if i_so < len(cells) else "0"
+
+                        era  = float(era_s)  if era_s  and era_s  not in ("-", "") else 4.50
+                        whip = float(whip_s) if whip_s and whip_s not in ("-", "") else 1.35
+                        try:
+                            so = float(so_s)
+                        except ValueError:
+                            so = 0.0
+                        k9 = (so / ip * 9) if ip > 0 else 7.5
+
+                        results.append(PitcherStatsRaw(
+                            external_id=f"kbo_{season}_{team_short}_{name}_recent",
+                            name=name,
+                            team_short=team_short,
+                            season=season,
+                            era=era,
+                            whip=whip,
+                            k9=k9,
+                            ip=ip,
+                            wins=0,
+                            losses=0,
+                        ))
+                    except (IndexError, ValueError, KeyError):
+                        continue
+
+        except Exception as e:
+            logger.error(f"KBO 날짜범위 투수 통계 스크래핑 실패 ({sdate}~{edate}): {e}")
+
+        logger.info(f"statiz 최근 투수 통계: {len(results)}명 ({sdate}~{edate})")
+        return results
+
     def _statiz_login(self, client: httpx.Client) -> bool:
         """statiz.co.kr 로그인 → 쿠키 설정. 성공 시 True 반환."""
         import json
@@ -804,7 +920,7 @@ class KBOCollector(BaseCollector):
                     try:
                         gs = int(cells[i_gs] or 0)
                         gr = int(cells[i_gr] or 0)
-                        if gr <= gs:  # 선발이 더 많으면 스킵
+                        if gr == 0:  # 구원 등판 없으면 스킵 (순수 선발)
                             continue
 
                         ip = self._parse_innings(cells[i_ip])
