@@ -97,8 +97,8 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
   const isDome = Boolean(s.is_dome_game)
   const isMLB = s.home_sp_fip !== undefined || s.home_bullpen_era !== undefined
 
-  const homeIlCount = s.home_il_count ?? 0
-  const awayIlCount = s.away_il_count ?? 0
+  const homeIlCount = Number(s.home_il_count ?? 0)
+  const awayIlCount = Number(s.away_il_count ?? 0)
 
   return (
     <div className="space-y-3">
@@ -119,8 +119,8 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
         {/* 투구방향 */}
         <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-gray-50">
           <div className="text-xs text-gray-400">투구방향</div>
-          <div className="flex justify-center"><HandsBadge isLhp={s.home_sp_throws_is_lhp as number | null | undefined} /></div>
-          <div className="flex justify-center"><HandsBadge isLhp={s.away_sp_throws_is_lhp as number | null | undefined} /></div>
+          <div className="flex justify-center"><HandsBadge isLhp={s.home_sp_throws_is_lhp} /></div>
+          <div className="flex justify-center"><HandsBadge isLhp={s.away_sp_throws_is_lhp} /></div>
         </div>
 
         <CompareRow label="ERA (시즌)"     home={s.home_sp_era_season}  away={s.away_sp_era_season}  lowerBetter imputed={homeImputed || awayImputed} />
