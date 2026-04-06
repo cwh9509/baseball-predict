@@ -525,3 +525,25 @@ async def trigger_collect_results(target_date: str = Query(default=None)):
 
     asyncio.create_task(_run())
     return {"status": "started", "date": str(d)}
+
+
+@router.post("/backfill")
+async def trigger_backfill(
+    start: str = Query(..., description="시작일 YYYY-MM-DD"),
+    end: str = Query(..., description="종료일 YYYY-MM-DD"),
+    league: str = Query(default=None, description="리그 (KBO/MLB, 기본: 설정값)"),
+    skip_weather: bool = Query(default=True),
+):
+    """과거 경기 결과 백필 (start~end 범위)"""
+    import asyncio
+    from datetime import datetime
+    from app.pipeline.etl_runner import backfill_async
+
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    target_league = league.upper() if league else None
+
+    logger.info(f"백필 트리거: {s} ~ {e}, league={target_league or '설정값'}")
+
+    asyncio.create_task(backfill_async(s, e, league=target_league, skip_weather=skip_weather))
+    return {"status": "started", "start": str(s), "end": str(e), "league": target_league}
