@@ -346,6 +346,123 @@ async def trigger_compute_splits(season: int = Query(default=None)):
     return {"status": "started", "season": s}
 
 
+@router.post("/collect-mlb-stats")
+async def trigger_collect_mlb_stats(
+    season: int = Query(default=None),
+    all_seasons: bool = Query(default=False, alias="all"),
+):
+    """MLB 시즌 스탯 수집 및 DB upsert 수동 트리거
+    season: 특정 시즌 (기본: 현재 시즌)
+    all=true: 2024-2025 전체 수집
+    """
+    import asyncio
+    from datetime import date as date_cls
+
+    seasons_to_collect: list[int]
+    if all_seasons:
+        seasons_to_collect = [2024, 2025]
+    else:
+        seasons_to_collect = [season or date_cls.today().year]
+
+    logger.info(f"수동 트리거: MLB 스탯 수집 시작 (seasons={seasons_to_collect})")
+
+    async def _run():
+        from app.collectors.mlb_stats_collector import upsert_mlb_stats
+        from app.core.database import AsyncSessionLocal
+        results = []
+        for s in seasons_to_collect:
+            async with AsyncSessionLocal() as db:
+                summary = await upsert_mlb_stats(s, db)
+                results.append(summary)
+                logger.info(f"MLB 스탯 수집 완료: season={s}, {summary}")
+        return results
+
+    asyncio.create_task(_run())
+    return {"status": "started", "seasons": seasons_to_collect}
+
+
+@router.post("/upload-npb-stats")
+async def upload_npb_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(get_db)):
+    """로컬에서 수집한 NPB 스탯을 DB에 저장 (upsert)"""
+    from app.models.npb_stats import NpbPitcherStat, NpbTeamBattingStat, NpbTeamBullypenStat, NpbTeamBattingSplitStat
+
+    season = payload.season
+
+    if payload.pitchers:
+        for p in payload.pitchers:
+            vals = dict(season=season, name=p.name, team_short=p.team_short,
+                        era=p.era, whip=p.whip, k9=p.k9, ip=p.ip)
+            if p.gs is not None:
+                vals["gs"] = p.gs
+            if p.handedness:
+                vals["handedness"] = p.handedness
+            if p.recent_era is not None:
+                vals["recent_era"] = p.recent_era
+            if p.recent_whip is not None:
+                vals["recent_whip"] = p.recent_whip
+            upd = {"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip}
+            if p.gs is not None:
+                upd["gs"] = p.gs
+            if p.handedness:
+                upd["handedness"] = p.handedness
+            if p.recent_era is not None:
+                upd["recent_era"] = p.recent_era
+            if p.recent_whip is not None:
+                upd["recent_whip"] = p.recent_whip
+            stmt = insert(NpbPitcherStat).values(**vals).on_conflict_do_update(
+                constraint="uq_npb_pitcher", set_=upd,
+            )
+            await db.execute(stmt)
+
+    if payload.team_batting:
+        for t in payload.team_batting:
+            stmt = insert(NpbTeamBattingStat).values(
+                season=season, team_short=t.team_short,
+                ops=t.ops, wrc_plus=t.wrc_plus, k_rate=t.k_rate,
+            ).on_conflict_do_update(
+                constraint="uq_npb_team_batting",
+                set_={"ops": t.ops, "wrc_plus": t.wrc_plus, "k_rate": t.k_rate},
+            )
+            await db.execute(stmt)
+
+    if payload.team_bullpen:
+        for b in payload.team_bullpen:
+            stmt = insert(NpbTeamBullypenStat).values(
+                season=season, team_short=b.team_short,
+                bullpen_era=b.bullpen_era, bullpen_whip=b.bullpen_whip, bullpen_count=b.bullpen_count,
+            ).on_conflict_do_update(
+                constraint="uq_npb_team_bullpen",
+                set_={"bullpen_era": b.bullpen_era, "bullpen_whip": b.bullpen_whip, "bullpen_count": b.bullpen_count},
+            )
+            await db.execute(stmt)
+
+    if payload.team_batting_splits:
+        for s in payload.team_batting_splits:
+            stmt = insert(NpbTeamBattingSplitStat).values(
+                season=season, team_short=s.team_short, split=s.split,
+                ops=s.ops, pa=s.pa,
+            ).on_conflict_do_update(
+                constraint="uq_npb_team_batting_split",
+                set_={"ops": s.ops, "pa": s.pa},
+            )
+            await db.execute(stmt)
+
+    await db.commit()
+    logger.info(
+        f"NPB 스탯 업로드 완료: season={season}, 투수={len(payload.pitchers)}, "
+        f"팀타선={len(payload.team_batting)}, 불펜={len(payload.team_bullpen)}, "
+        f"스플릿={len(payload.team_batting_splits)}"
+    )
+    return {
+        "status": "ok",
+        "season": season,
+        "pitchers_upserted": len(payload.pitchers),
+        "team_batting_upserted": len(payload.team_batting),
+        "team_bullpen_upserted": len(payload.team_bullpen),
+        "splits_upserted": len(payload.team_batting_splits),
+    }
+
+
 @router.post("/collect-results")
 async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""

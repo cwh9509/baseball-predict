@@ -20,7 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.ballpark_features import get_ballpark_features
 from app.features.batter_features import get_lineup_features
 from app.features.elo_features import get_elo_features
-from app.features.pitcher_features import get_pitcher_features, get_team_rotation_era, get_kbo_starter_era, get_kbo_starter_stats
+from app.features.injury_features import get_team_il_features
+from app.features.pitcher_features import (
+    get_pitcher_features, get_team_rotation_era,
+    get_kbo_starter_era, get_kbo_starter_stats,
+    get_mlb_starter_stats, get_mlb_bullpen_stats,
+    get_npb_starter_stats, get_npb_bullpen_stats,
+)
 from app.features.team_features import get_team_form_features
 from app.features.weather_features import get_weather_features
 from app.models import Game, Player, Team
@@ -96,8 +102,35 @@ KBO_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS
 # NPB: KBO와 동일 구조 (팀 폼 + 팀 로테이션 ERA + 날씨 + 구장)
 NPB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS
 
-# MLB: 전체 피처 (투수/타자 통계 포함)
-MLB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _PITCHER_BATTER_COLUMNS
+# MLB 확장 피처: 불펜 + 투구방향 + FIP + 타선스플릿 + 최근폼 (KBO 수준 동등화)
+_MLB_EXTENDED_COLUMNS = [
+    # 팀 불펜 ERA/WHIP
+    "home_bullpen_era", "away_bullpen_era", "bullpen_era_diff",
+    "home_bullpen_whip", "away_bullpen_whip",
+    # 선발 투구 방향 (1=좌완, 0=우완, NaN=미확인)
+    "home_sp_throws_is_lhp", "away_sp_throws_is_lhp",
+    # FIP (Fielding Independent Pitching — 수비 무관 투수 지표)
+    "home_sp_fip", "away_sp_fip", "sp_fip_diff",
+    # 타선 스플릿 OPS (상대 선발 투구방향 기준)
+    "home_lineup_split_ops", "away_lineup_split_ops", "lineup_split_ops_diff",
+    # 선발투수 최근 3경기 ERA (없으면 시즌 ERA)
+    "home_sp_recent_era", "away_sp_recent_era", "sp_recent_era_diff",
+]
+
+# MLB 고급 피처: 홈/원정 ERA + 구종/구속 + 부상자 현황
+_MLB_ADVANCED_COLUMNS = [
+    # 선발투수 홈/원정 분리 ERA (구장 선호도)
+    "home_sp_venue_era", "away_sp_venue_era", "sp_venue_era_diff",
+    # 구종 비율 & 평균 구속
+    "home_sp_fastball_pct", "away_sp_fastball_pct",
+    "home_sp_avg_velocity", "away_sp_avg_velocity",
+    # 부상자 명단 (IL) — 선수 수 & 가중 영향도
+    "home_il_count", "away_il_count",
+    "home_il_impact", "away_il_impact",
+]
+
+# MLB: 전체 피처 (투수/타자 통계 + 확장 + 고급)
+MLB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _PITCHER_BATTER_COLUMNS + _MLB_EXTENDED_COLUMNS + _MLB_ADVANCED_COLUMNS
 
 # 기본값 (하위 호환)
 FEATURE_COLUMNS = MLB_FEATURE_COLUMNS
@@ -147,6 +180,113 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     away_team_obj = None
     home_bullpen_era = None
     away_bullpen_era = None
+    home_bullpen_whip = None
+    away_bullpen_whip = None
+
+    # MLB 확장 피처용 변수
+    home_sp_fip = None
+    away_sp_fip = None
+    home_sp_throws_mlb = None
+    away_sp_throws_mlb = None
+    home_sp_recent_era_mlb = None
+    away_sp_recent_era_mlb = None
+
+    # MLB 고급 피처용 변수
+    home_sp_venue_era = None
+    away_sp_venue_era = None
+    home_sp_fastball_pct = None
+    away_sp_fastball_pct = None
+    home_sp_avg_velocity = None
+    away_sp_avg_velocity = None
+    home_il = {"il_count": float("nan"), "il_impact_score": float("nan")}
+    away_il = {"il_count": float("nan"), "il_impact_score": float("nan")}
+
+    if league == "MLB":
+        # 팀 객체 조회 (불펜 스탯에 필요)
+        home_team = await db.execute(select(Team).where(Team.id == game.home_team_id))
+        home_team_obj = home_team.scalar_one_or_none()
+        away_team = await db.execute(select(Team).where(Team.id == game.away_team_id))
+        away_team_obj = away_team.scalar_one_or_none()
+
+        # 불펜 스탯 (DB)
+        if home_team_obj:
+            bp = await get_mlb_bullpen_stats(home_team_obj.short_name, season, db)
+            if bp:
+                home_bullpen_era = bp["era"]
+                home_bullpen_whip = bp["whip"]
+        if away_team_obj:
+            bp = await get_mlb_bullpen_stats(away_team_obj.short_name, season, db)
+            if bp:
+                away_bullpen_era = bp["era"]
+                away_bullpen_whip = bp["whip"]
+
+        # 선발투수 DB 스탯 (FIP, 투구방향, 최근폼)
+        async def _mlb_sp_extras(pitcher_id, starter_name, team_obj):
+            fip = None
+            throws = None
+            recent_era = None
+            if pitcher_id:
+                from app.models import Player as PlayerModel
+                p = (await db.execute(select(PlayerModel).where(PlayerModel.id == pitcher_id))).scalar_one_or_none()
+                name = (p.name if p else None) or starter_name
+                team_s = team_obj.short_name if team_obj else ""
+            else:
+                name = starter_name
+                team_s = team_obj.short_name if team_obj else ""
+            if name:
+                mlb_stats = await get_mlb_starter_stats(name, team_s, season, db)
+                if mlb_stats:
+                    fip = mlb_stats.get("fip")
+                    throws = mlb_stats.get("handedness")
+                    recent_era = mlb_stats.get("recent_era")
+            return fip, throws, recent_era
+
+        home_sp_fip, home_sp_throws_mlb, home_sp_recent_era_mlb = await _mlb_sp_extras(
+            game.home_starter_id, game.home_starter_name, home_team_obj
+        )
+        away_sp_fip, away_sp_throws_mlb, away_sp_recent_era_mlb = await _mlb_sp_extras(
+            game.away_starter_id, game.away_starter_name, away_team_obj
+        )
+
+        # 투구방향: DB > Player 테이블 순서
+        if home_sp_throws_mlb:
+            home_sp_throws = home_sp_throws_mlb
+        if away_sp_throws_mlb:
+            away_sp_throws = away_sp_throws_mlb
+
+        # 고급 피처: 홈/원정 ERA, 구종/구속 (이미 _mlb_sp_extras에서 mlb_starter_stats 조회)
+        async def _mlb_sp_advanced(pitcher_id, starter_name, team_obj, is_home: bool):
+            venue_era = None
+            fb_pct = None
+            velocity = None
+            if pitcher_id or starter_name:
+                from app.models import Player as PlayerModel
+                name = starter_name
+                team_s = team_obj.short_name if team_obj else ""
+                if pitcher_id:
+                    p = (await db.execute(select(PlayerModel).where(PlayerModel.id == pitcher_id))).scalar_one_or_none()
+                    name = (p.name if p else None) or starter_name
+                if name:
+                    mlb_stats = await get_mlb_starter_stats(name, team_s, season, db)
+                    if mlb_stats:
+                        venue_era = mlb_stats.get("home_era") if is_home else mlb_stats.get("away_era")
+                        fb_pct = mlb_stats.get("fastball_pct")
+                        velocity = mlb_stats.get("avg_velocity")
+            return venue_era, fb_pct, velocity
+
+        home_sp_venue_era, home_sp_fastball_pct, home_sp_avg_velocity = await _mlb_sp_advanced(
+            game.home_starter_id, game.home_starter_name, home_team_obj, is_home=True
+        )
+        away_sp_venue_era, away_sp_fastball_pct, away_sp_avg_velocity = await _mlb_sp_advanced(
+            game.away_starter_id, game.away_starter_name, away_team_obj, is_home=False
+        )
+
+        # IL 부상자 피처 (Redis 캐시)
+        if home_team_obj:
+            home_il = await get_team_il_features(home_team_obj.short_name)
+        if away_team_obj:
+            away_il = await get_team_il_features(away_team_obj.short_name)
+
     if league in ("KBO", "NPB"):
         home_team = await db.execute(select(Team).where(Team.id == game.home_team_id))
         home_team_obj = home_team.scalar_one_or_none()
@@ -156,6 +296,30 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
             home_rotation_era = await get_team_rotation_era(home_team_obj.short_name, league, season, db=db)
         if away_team_obj:
             away_rotation_era = await get_team_rotation_era(away_team_obj.short_name, league, season, db=db)
+        if league == "NPB":
+            # NPB 개별 선발투수 스탯
+            if home_team_obj and game.home_starter_name:
+                _home_npb = await get_npb_starter_stats(
+                    game.home_starter_name, home_team_obj.short_name, season, db=db
+                )
+                if _home_npb and home_sp_throws is None:
+                    home_sp_throws = _home_npb.get("handedness")
+            if away_team_obj and game.away_starter_name:
+                _away_npb = await get_npb_starter_stats(
+                    game.away_starter_name, away_team_obj.short_name, season, db=db
+                )
+                if _away_npb and away_sp_throws is None:
+                    away_sp_throws = _away_npb.get("handedness")
+            # NPB 불펜
+            if home_team_obj:
+                bp = await get_npb_bullpen_stats(home_team_obj.short_name, season, db)
+                if bp:
+                    home_bullpen_era = bp["era"]
+            if away_team_obj:
+                bp = await get_npb_bullpen_stats(away_team_obj.short_name, season, db)
+                if bp:
+                    away_bullpen_era = bp["era"]
+
         if league == "KBO":
             if home_team_obj and game.home_starter_name:
                 _home_kbo = await get_kbo_starter_stats(
@@ -293,30 +457,52 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "home_rotation_era": home_rotation_era,
         "away_rotation_era": away_rotation_era,
         "rotation_era_diff": _safe_diff(home_rotation_era, away_rotation_era),
-        # KBO 팀 불펜 ERA
+        # 팀 불펜 ERA (KBO + MLB 공통)
         "home_bullpen_era": home_bullpen_era,
         "away_bullpen_era": away_bullpen_era,
         "bullpen_era_diff": _safe_diff(home_bullpen_era, away_bullpen_era),
+        "home_bullpen_whip": home_bullpen_whip,
+        "away_bullpen_whip": away_bullpen_whip,
         # KBO 개인 선발투수 ERA (starter_name 있을 때만 값, 없으면 NaN)
         "home_sp_era_indiv": home_sp_era_indiv,
         "away_sp_era_indiv": away_sp_era_indiv,
         "sp_era_indiv_diff": _safe_diff(home_sp_era_indiv, away_sp_era_indiv),
-        # 선발 투구 방향 (1=좌완, 0=우완, NaN=미확인)
+        # 선발 투구 방향 (1=좌완, 0=우완, NaN=미확인) — KBO + MLB 공통
         "home_sp_throws_is_lhp": (1 if home_sp_throws == "L" else 0) if home_sp_throws else float("nan"),
         "away_sp_throws_is_lhp": (1 if away_sp_throws == "L" else 0) if away_sp_throws else float("nan"),
-        # 타선 스플릿 OPS (상대 선발 투구방향 기준)
+        # FIP (MLB 확장)
+        "home_sp_fip": home_sp_fip,
+        "away_sp_fip": away_sp_fip,
+        "sp_fip_diff": _safe_diff(home_sp_fip, away_sp_fip),
+        # 타선 스플릿 OPS (상대 선발 투구방향 기준) — KBO + MLB 공통
         "home_lineup_split_ops": home_lineup.get("lineup_vs_lhp_ops") if away_sp_throws == "L" else home_lineup.get("lineup_vs_rhp_ops"),
         "away_lineup_split_ops": away_lineup.get("lineup_vs_lhp_ops") if home_sp_throws == "L" else away_lineup.get("lineup_vs_rhp_ops"),
         "lineup_split_ops_diff": _safe_diff(
             home_lineup.get("lineup_vs_lhp_ops") if away_sp_throws == "L" else home_lineup.get("lineup_vs_rhp_ops"),
             away_lineup.get("lineup_vs_lhp_ops") if home_sp_throws == "L" else away_lineup.get("lineup_vs_rhp_ops"),
         ),
-        # 선발투수 최근 14일 ERA/WHIP
-        "home_sp_recent_era": home_sp_recent_era,
-        "away_sp_recent_era": away_sp_recent_era,
-        "sp_recent_era_diff": _safe_diff(home_sp_recent_era, away_sp_recent_era),
+        # 선발투수 최근 폼 ERA — KBO(14일), MLB(최근 3경기)
+        "home_sp_recent_era": home_sp_recent_era_mlb if league == "MLB" else home_sp_recent_era,
+        "away_sp_recent_era": away_sp_recent_era_mlb if league == "MLB" else away_sp_recent_era,
+        "sp_recent_era_diff": _safe_diff(
+            home_sp_recent_era_mlb if league == "MLB" else home_sp_recent_era,
+            away_sp_recent_era_mlb if league == "MLB" else away_sp_recent_era,
+        ),
+        # KBO 전용 (whip은 KBO만)
         "home_sp_recent_whip": home_sp_recent_whip,
         "away_sp_recent_whip": away_sp_recent_whip,
+        # MLB 고급 피처
+        "home_sp_venue_era": home_sp_venue_era,
+        "away_sp_venue_era": away_sp_venue_era,
+        "sp_venue_era_diff": _safe_diff(home_sp_venue_era, away_sp_venue_era),
+        "home_sp_fastball_pct": home_sp_fastball_pct,
+        "away_sp_fastball_pct": away_sp_fastball_pct,
+        "home_sp_avg_velocity": home_sp_avg_velocity,
+        "away_sp_avg_velocity": away_sp_avg_velocity,
+        "home_il_count": home_il.get("il_count"),
+        "away_il_count": away_il.get("il_count"),
+        "home_il_impact": home_il.get("il_impact_score"),
+        "away_il_impact": away_il.get("il_impact_score"),
         # 날씨
         "temperature_c": weather.get("temperature_c"),
         "is_hot": int(weather.get("is_hot", False)),

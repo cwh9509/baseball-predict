@@ -74,6 +74,62 @@ async def _get_kbo_team_batting(team_id: int, season: int, db: AsyncSession) -> 
         return None
 
 
+async def _get_mlb_team_batting(team_id: int, season: int, db: AsyncSession) -> Optional[dict]:
+    """MLB 팀 타선 스탯 DB 조회 (mlb_team_batting_stats)"""
+    try:
+        from sqlalchemy import select, and_
+        from app.models import Team
+        from app.models.mlb_stats import MlbTeamBattingStat
+
+        team_result = await db.execute(select(Team).where(Team.id == team_id))
+        team = team_result.scalar_one_or_none()
+        if not team:
+            return None
+
+        for s in [season, season - 1]:
+            row = (await db.execute(
+                select(MlbTeamBattingStat).where(
+                    and_(MlbTeamBattingStat.team_short == team.short_name, MlbTeamBattingStat.season == s)
+                )
+            )).scalar_one_or_none()
+            if row:
+                return {"ops": row.ops, "wrc_plus": row.wrc_plus, "k_rate": row.k_rate, "bb_rate": row.bb_rate}
+        return None
+    except Exception as e:
+        logger.debug(f"MLB 타선 스탯 DB 조회 실패 (team_id={team_id}): {e}")
+        return None
+
+
+async def _get_mlb_team_batting_split(team_id: int, season: int, split: str, db: AsyncSession) -> Optional[float]:
+    """MLB 팀 타선 vs LHP/RHP 스플릿 OPS 조회 ('vs_lhp' or 'vs_rhp')"""
+    try:
+        from sqlalchemy import select, and_
+        from app.models import Team
+        from app.models.mlb_stats import MlbTeamBattingSplitStat
+
+        team_result = await db.execute(select(Team).where(Team.id == team_id))
+        team = team_result.scalar_one_or_none()
+        if not team:
+            return None
+
+        for s in [season, season - 1]:
+            row = (await db.execute(
+                select(MlbTeamBattingSplitStat).where(
+                    and_(
+                        MlbTeamBattingSplitStat.team_short == team.short_name,
+                        MlbTeamBattingSplitStat.season == s,
+                        MlbTeamBattingSplitStat.split == split,
+                    )
+                )
+            )).scalar_one_or_none()
+            if row:
+                return row.ops
+        return None
+    except Exception as e:
+        logger.debug(f"MLB 타선 스플릿 OPS DB 조회 실패 (team_id={team_id}, split={split}): {e}")
+        return None
+
+
 async def get_lineup_features(
     db: AsyncSession,
     team_id: int,
@@ -87,10 +143,12 @@ async def get_lineup_features(
     real_stats = None
     if league == "KBO":
         real_stats = await _get_kbo_team_batting(team_id, season, db)
+    elif league == "MLB":
+        real_stats = await _get_mlb_team_batting(team_id, season, db)
 
     if real_stats:
         ops      = real_stats["ops"]
-        wrc_plus = real_stats["wrc_plus"]
+        wrc_plus = real_stats.get("wrc_plus") or avg["wrc_plus"]
         k_rate   = real_stats["k_rate"]
         imputed  = False
     else:
@@ -105,6 +163,9 @@ async def get_lineup_features(
     if league == "KBO":
         split_ops_vs_lhp = await _get_kbo_team_batting_split(team_id, season, "vs_lhp", db)
         split_ops_vs_rhp = await _get_kbo_team_batting_split(team_id, season, "vs_rhp", db)
+    elif league == "MLB":
+        split_ops_vs_lhp = await _get_mlb_team_batting_split(team_id, season, "vs_lhp", db)
+        split_ops_vs_rhp = await _get_mlb_team_batting_split(team_id, season, "vs_rhp", db)
 
     lhp_ops = split_ops_vs_lhp if split_ops_vs_lhp is not None else ops * 0.97
     rhp_ops = split_ops_vs_rhp if split_ops_vs_rhp is not None else ops * 1.02

@@ -61,6 +61,15 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
+    # MLB 스탯 수집 (매주 일요일 오전 2시 — KBO 수집보다 먼저, 재학습 전날)
+    scheduler.add_job(
+        _run_weekly_mlb_stats_upload,
+        trigger=CronTrigger(day_of_week="sun", hour=2, minute=0, timezone=settings.scheduler_timezone),
+        id="weekly_mlb_stats_upload",
+        name="주간 MLB 스탯 수집",
+        replace_existing=True,
+    )
+
     # 모델 재학습 (매주 월요일 오전 3시)
     scheduler.add_job(
         _run_model_retrain,
@@ -94,7 +103,7 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (7개 작업)")
+    logger.info("스케줄러 작업 등록 완료 (8개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -140,6 +149,14 @@ async def _run_weekly_stats_upload() -> None:
         await run_splits(season=season)
     except Exception as e:
         logger.error(f"weekly_stats_upload 실패: {e}", exc_info=True)
+
+
+async def _run_weekly_mlb_stats_upload() -> None:
+    try:
+        from app.tasks.mlb_stats_upload import run as run_mlb
+        await run_mlb()
+    except Exception as e:
+        logger.error(f"weekly_mlb_stats_upload 실패: {e}", exc_info=True)
 
 
 async def _run_lineup_watch() -> None:

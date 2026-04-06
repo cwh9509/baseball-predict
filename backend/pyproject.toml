@@ -3,7 +3,7 @@ name = "baseball-predict-backend"
 version = "0.1.0"
 description = "야구 경기 승리 예측 시스템 백엔드"
 authors = []
-readme = "README.md"
+package-mode = false
 packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
@@ -55,6 +55,7 @@ python-dateutil = "^2.9.0"
 pyarrow = "^18.0.0"      # Parquet 캐시용
 mlb-statsapi = "^1.9.0"
 optuna = "^4.8.0"
+shap = "^0.46.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
