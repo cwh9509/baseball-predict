@@ -142,17 +142,35 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
 
 
 @router.post("/retrain")
-async def trigger_retrain():
-    """모델 수동 재학습 트리거"""
+async def trigger_retrain(league: str = Query(default=None)):
+    """모델 수동 재학습 트리거. league=MLB 로 지정 가능 (기본: 설정값)"""
     import asyncio
 
-    async def _run():
-        from app.tasks.model_retrain import run
-        await run()
+    async def _run(target_league: str):
+        from app.config import settings
+        from app.ml.trainer import Trainer
+        original = settings.league
+        settings.league = target_league
+        try:
+            trainer = Trainer()
+            await trainer.retrain()
+            logger.info(f"{target_league} 모델 재학습 완료")
+        finally:
+            settings.league = original
 
-    asyncio.create_task(_run())
-    logger.info("수동 재학습 트리거")
-    return {"status": "started"}
+    target = league.upper() if league else None
+    from app.config import settings
+    if target and target != settings.league:
+        asyncio.create_task(_run(target))
+        logger.info(f"수동 재학습 트리거: {target}")
+        return {"status": "started", "league": target}
+    else:
+        async def _run_default():
+            from app.tasks.model_retrain import run
+            await run()
+        asyncio.create_task(_run_default())
+        logger.info(f"수동 재학습 트리거: {settings.league}")
+        return {"status": "started", "league": settings.league}
 
 
 @router.post("/collect")
