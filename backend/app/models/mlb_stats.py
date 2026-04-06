@@ -38,6 +38,10 @@ class MlbPitcherStat(Base):
     recent_era: Mapped[Optional[float]] = mapped_column(Float, nullable=True)    # 최근 3경기 ERA
     recent_whip: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # 최근 3경기 WHIP
     fg_id: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)      # FanGraphs 선수 ID
+    home_era: Mapped[Optional[float]] = mapped_column(Float, nullable=True)      # 홈 ERA
+    away_era: Mapped[Optional[float]] = mapped_column(Float, nullable=True)      # 원정 ERA
+    fastball_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 패스트볼 비율
+    avg_velocity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 평균 구속 (mph)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
