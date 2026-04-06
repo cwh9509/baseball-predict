@@ -19,6 +19,7 @@ class KboPitcherStat(Base):
     whip: Mapped[float] = mapped_column(Float, nullable=False)
     k9: Mapped[float] = mapped_column(Float, nullable=False)
     ip: Mapped[float] = mapped_column(Float, nullable=False)
+    gs: Mapped[int] = mapped_column(Integer, nullable=True)             # 선발 등판수 (GS=0이면 불펜)
     handedness: Mapped[str] = mapped_column(String(2), nullable=True)   # "L" or "R"
     recent_era: Mapped[float] = mapped_column(Float, nullable=True)     # 최근 14일 ERA
     recent_whip: Mapped[float] = mapped_column(Float, nullable=True)    # 최근 14일 WHIP

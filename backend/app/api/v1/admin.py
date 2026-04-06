@@ -24,6 +24,7 @@ class PitcherStatIn(BaseModel):
     whip: float
     k9: float
     ip: float
+    gs: Optional[int] = None               # 선발 등판수 (0=불펜)
     handedness: Optional[str] = None       # "L" or "R"
     recent_era: Optional[float] = None     # 최근 14일 ERA
     recent_whip: Optional[float] = None    # 최근 14일 WHIP
@@ -66,6 +67,8 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
         for p in payload.pitchers:
             vals = dict(season=season, name=p.name, team_short=p.team_short,
                         era=p.era, whip=p.whip, k9=p.k9, ip=p.ip)
+            if p.gs is not None:
+                vals["gs"] = p.gs
             if p.handedness:
                 vals["handedness"] = p.handedness
             if p.recent_era is not None:
@@ -73,6 +76,8 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
             if p.recent_whip is not None:
                 vals["recent_whip"] = p.recent_whip
             upd = {"era": p.era, "whip": p.whip, "k9": p.k9, "ip": p.ip}
+            if p.gs is not None:
+                upd["gs"] = p.gs
             if p.handedness:
                 upd["handedness"] = p.handedness
             if p.recent_era is not None:

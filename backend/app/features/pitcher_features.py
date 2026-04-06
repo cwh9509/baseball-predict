@@ -56,6 +56,50 @@ async def get_kbo_starter_stats(
     return None
 
 
+async def get_kbo_bullpen_stats(
+    team_short: str,
+    season: int,
+    db: AsyncSession,
+) -> Optional[dict]:
+    """KBO 팀 불펜 스탯 — kbo_pitcher_stats에서 gs=0 또는 gs<5인 투수 IP 가중 평균
+    kbo_team_bullpen_stats 테이블이 있으면 우선 사용, 없으면 개별 데이터로 계산
+    """
+    from sqlalchemy import and_
+    from app.models.kbo_stats import KboTeamBullypenStat, KboPitcherStat
+
+    # 1) 팀 집계 테이블 우선 조회
+    for s in [season, season - 1]:
+        row = (await db.execute(
+            select(KboTeamBullypenStat).where(
+                and_(KboTeamBullypenStat.team_short == team_short, KboTeamBullypenStat.season == s)
+            )
+        )).scalar_one_or_none()
+        if row:
+            return {"era": row.bullpen_era, "whip": row.bullpen_whip}
+
+    # 2) 개별 투수 데이터에서 계산 (gs < 5 = 불펜 투수)
+    for s in [season, season - 1]:
+        pitchers = (await db.execute(
+            select(KboPitcherStat).where(
+                and_(
+                    KboPitcherStat.team_short == team_short,
+                    KboPitcherStat.season == s,
+                    KboPitcherStat.ip >= 1,
+                )
+            )
+        )).scalars().all()
+
+        bullpen = [p for p in pitchers if (p.gs is not None and p.gs < 5) or (p.gs is None and p.ip < 30)]
+        if bullpen:
+            total_ip = sum(p.ip for p in bullpen)
+            if total_ip > 0:
+                era = sum(p.era * p.ip for p in bullpen) / total_ip
+                whip = sum(p.whip * p.ip for p in bullpen) / total_ip
+                return {"era": era, "whip": whip}
+
+    return None
+
+
 async def get_team_rotation_era(team_short: str, league: str, season: int, db: Optional[AsyncSession] = None) -> Optional[float]:
     """팀 로테이션 ERA (KBO/NPB 전용 — 개별 선발 정보 없을 때 사용)
     KBO: DB에서 팀 투수들 IP 가중 평균 ERA

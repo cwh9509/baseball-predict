@@ -414,18 +414,10 @@ async def _get_kbo_starter_recent_stats(
 
 
 async def _get_kbo_bullpen_era(db: AsyncSession, team_short: str, season: int) -> Optional[float]:
-    """DB에서 팀 불펜 ERA 조회 (현 시즌 없으면 직전 시즌 폴백)"""
-    from app.models.kbo_stats import KboTeamBullypenStat
-    from sqlalchemy import and_
-    for s in [season, season - 1]:
-        row = (await db.execute(
-            select(KboTeamBullypenStat).where(
-                and_(KboTeamBullypenStat.team_short == team_short, KboTeamBullypenStat.season == s)
-            )
-        )).scalar_one_or_none()
-        if row:
-            return row.bullpen_era
-    return None
+    """팀 불펜 ERA 조회 — 개별 투수 데이터(gs<5) 우선, 팀 집계 테이블 폴백"""
+    from app.features.pitcher_features import get_kbo_bullpen_stats
+    result = await get_kbo_bullpen_stats(team_short, season, db)
+    return result["era"] if result else None
 
 
 async def _get_pitcher_throws(db: AsyncSession, pitcher_id) -> Optional[str]:
