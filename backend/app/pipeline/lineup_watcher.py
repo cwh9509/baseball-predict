@@ -137,24 +137,33 @@ async def run_for_date(target_date: date) -> None:
 
             # 스케줄 API에서 선발 없으면 Naver 우선, KBO 폴백
             lineup_source = "schedule" if (home_starter and away_starter) else None
-            if (not home_starter or not away_starter) and game.external_game_id:
+            home_lineup: list = []
+            away_lineup: list = []
+
+            if game.external_game_id and (not home_starter or not away_starter or not home_lineup):
                 try:
                     lc_result = await naver_collector.fetch_lineup(game.external_game_id)
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
-                        lineup_source = lc_result.get("source")  # naver_lineup or naver_preview
-                        logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lineup_source})")
+                        home_lineup = lc_result.get("home_lineup") or []
+                        away_lineup = lc_result.get("away_lineup") or []
+                        lineup_source = lc_result.get("source")
+                        logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lineup_source}) 타순: home={len(home_lineup)}명, away={len(away_lineup)}명")
                 except Exception as e:
                     logger.debug(f"game_id={game.id} Naver collector 실패: {e}")
 
             # Naver도 없으면 KBO lineup collector 폴백
-            if (not home_starter or not away_starter) and game.external_game_id:
+            if game.external_game_id and (not home_starter or not away_starter):
                 try:
                     lc_result = await kbo_collector_lc.fetch_lineup(game.external_game_id)
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
+                        if not home_lineup:
+                            home_lineup = lc_result.get("home_lineup") or []
+                        if not away_lineup:
+                            away_lineup = lc_result.get("away_lineup") or []
                         lineup_source = lc_result.get("source")
                 except Exception as e:
                     logger.debug(f"game_id={game.id} KBO lineup collector 폴백 실패: {e}")
@@ -164,8 +173,8 @@ async def run_for_date(target_date: date) -> None:
             lineup = {
                 "home_starter": home_starter,
                 "away_starter": away_starter,
-                "home_lineup": [],
-                "away_lineup": [],
+                "home_lineup": home_lineup,
+                "away_lineup": away_lineup,
                 "confirmed": is_confirmed,
             }
             changed = await _update_game_lineup(db, game, lineup)
