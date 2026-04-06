@@ -463,6 +463,24 @@ async def upload_npb_stats(payload: UploadStatsPayload, db: AsyncSession = Depen
     }
 
 
+@router.post("/migrate")
+async def trigger_migrate():
+    """Alembic 마이그레이션 수동 실행 (alembic upgrade head)"""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        alembic_cfg = Config(os.path.join(base_dir, "alembic.ini"))
+        alembic_cfg.set_main_option("script_location", os.path.join(base_dir, "alembic"))
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic 마이그레이션 완료")
+        return {"status": "ok", "message": "alembic upgrade head 완료"}
+    except Exception as e:
+        logger.error(f"Alembic 마이그레이션 실패: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @router.post("/collect-results")
 async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""
