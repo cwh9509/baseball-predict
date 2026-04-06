@@ -308,6 +308,24 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
     return {"results": results}
 
 
+@router.post("/collect-stats")
+async def trigger_collect_stats(season: int = Query(default=None)):
+    """statiz 스탯 수집 + DB 업로드 수동 트리거"""
+    import asyncio
+    from datetime import date as date_cls
+
+    s = season or date_cls.today().year
+    logger.info(f"수동 트리거: KBO 스탯 수집 시작 (season={s})")
+
+    async def _run():
+        from app.tasks.stats_upload import run as run_stats
+        await run_stats(season=s)
+        logger.info(f"KBO 스탯 수집 완료 (season={s})")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "season": s}
+
+
 @router.post("/collect-results")
 async def trigger_collect_results(target_date: str = Query(default=None)):
     """전날 경기 결과 수집 수동 트리거"""
