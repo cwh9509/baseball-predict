@@ -255,19 +255,22 @@ class KBOCollector(BaseCollector):
         return None
 
     def _parse_play_cell(self, play_text: str) -> tuple[str, Optional[int], Optional[int]]:
-        """Returns (status, home_score, away_score)"""
+        """Returns (status, home_score, away_score)
+        KBO 사이트는 원정 점수가 먼저, 홈 점수가 나중에 표시됨
+        """
         if "win" in play_text or "lose" in play_text:
             # Completed game
             scores = re.findall(r'class="(?:win|lose|same)">(\d+)<', play_text)
             if len(scores) >= 2:
-                home_score, away_score = int(scores[0]), int(scores[1])
+                away_score, home_score = int(scores[0]), int(scores[1])
                 return "final", home_score, away_score
             return "final", None, None
         elif "same" in play_text:
             # Tie
             scores = re.findall(r'class="same">(\d+)<', play_text)
             if len(scores) >= 2:
-                return "final", int(scores[0]), int(scores[1])
+                away_score, home_score = int(scores[0]), int(scores[1])
+                return "final", home_score, away_score
             return "final", None, None
         else:
             return "scheduled", None, None

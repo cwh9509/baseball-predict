@@ -145,13 +145,13 @@ class ETLRunner:
                         winner = await self._get_team_by_short(db, winner_short, raw.league)
                         if winner:
                             game.winner_team_id = winner.id
-                    # predictions.was_correct 업데이트
+                    # predictions.was_correct 업데이트 (항상 재계산)
                     if game.winner_team_id:
                         await db.execute(
                             text("""
                                 UPDATE predictions
                                 SET was_correct = (predicted_winner_id = :winner_id)
-                                WHERE game_id = :game_id AND was_correct IS NULL
+                                WHERE game_id = :game_id
                             """),
                             {"winner_id": game.winner_team_id, "game_id": game.id},
                         )
