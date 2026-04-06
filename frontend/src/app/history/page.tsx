@@ -8,6 +8,7 @@ const CalendarView = dynamic(() => import("./CalendarView"), { ssr: false })
 const TeamTracker = dynamic(() => import("./TeamTracker"), { ssr: false })
 
 type Tab = "list" | "calendar" | "teams"
+type League = "KBO" | "MLB"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "list", label: "📋 리스트" },
@@ -15,12 +16,24 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "teams", label: "🏆 팀별" },
 ]
 
+const LEAGUES: { id: League; label: string }[] = [
+  { id: "KBO", label: "🇰🇷 KBO" },
+  { id: "MLB", label: "🇺🇸 MLB" },
+]
+
 export default function HistoryPage() {
-  const league = "KBO"
+  const [league, setLeague] = useState<League>("KBO")
   const [tab, setTab] = useState<Tab>("list")
   const [page, setPage] = useState(1)
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
+  // 리그 변경 시 페이지 초기화
+  const handleLeagueChange = (l: League) => {
+    setLeague(l)
+    setPage(1)
+    setData(null)
+  }
 
   useEffect(() => {
     if (tab !== "list") return
@@ -36,11 +49,29 @@ export default function HistoryPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">예측 히스토리</h1>
       </div>
 
-      {/* Tabs */}
+      {/* 리그 선택 */}
+      <div className="flex gap-2 mb-5">
+        {LEAGUES.map((l) => (
+          <button
+            key={l.id}
+            onClick={() => handleLeagueChange(l.id)}
+            className={cn(
+              "px-4 py-1.5 rounded-full text-sm font-medium border transition-colors",
+              league === l.id
+                ? "bg-blue-500 text-white border-blue-500"
+                : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-500"
+            )}
+          >
+            {l.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 콘텐츠 탭 */}
       <div className="flex gap-1 mb-6 border-b border-gray-200">
         {TABS.map((t) => (
           <button
@@ -61,7 +92,6 @@ export default function HistoryPage() {
       {/* List Tab */}
       {tab === "list" && (
         <>
-          {/* 요약 카드 */}
           {summary && (
             <div className="flex gap-3 mb-6 overflow-x-auto">
               <StatCard label="총 예측" value={summary.total_predictions} />
@@ -78,7 +108,6 @@ export default function HistoryPage() {
             </div>
           )}
 
-          {/* 예측 테이블 */}
           <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-500 text-xs">
@@ -96,7 +125,7 @@ export default function HistoryPage() {
                 {loading ? (
                   <tr><td colSpan={7} className="text-center py-8 text-gray-400">로딩 중...</td></tr>
                 ) : predictions.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-8 text-gray-400">데이터 없음</td></tr>
+                  <tr><td colSpan={7} className="text-center py-8 text-gray-400">{league} 데이터 없음</td></tr>
                 ) : (
                   predictions.map((p: any) => (
                     <tr key={p.game_id} className="hover:bg-gray-50">
@@ -116,7 +145,6 @@ export default function HistoryPage() {
             </table>
           </div>
 
-          {/* 페이지네이션 */}
           {pagination && pagination.pages > 1 && (
             <div className="flex justify-center gap-2 mt-4">
               <button
