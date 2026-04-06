@@ -130,13 +130,14 @@ async def _run_model_retrain() -> None:
 
 
 async def _run_weekly_stats_upload() -> None:
-    """statiz에서 KBO 스탯 스크래핑 후 DB 업로드"""
+    """statiz에서 KBO 스탯 스크래핑 후 DB 업로드 + 스플릿 계산"""
     try:
-        import os
         from datetime import date
         from app.tasks.stats_upload import run as run_stats_upload
+        from app.tasks.compute_splits import run as run_splits
         season = date.today().year
         await run_stats_upload(season=season)
+        await run_splits(season=season)
     except Exception as e:
         logger.error(f"weekly_stats_upload 실패: {e}", exc_info=True)
 

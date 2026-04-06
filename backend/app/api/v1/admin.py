@@ -319,8 +319,28 @@ async def trigger_collect_stats(season: int = Query(default=None)):
 
     async def _run():
         from app.tasks.stats_upload import run as run_stats
+        from app.tasks.compute_splits import run as run_splits
         await run_stats(season=s)
-        logger.info(f"KBO 스탯 수집 완료 (season={s})")
+        await run_splits(season=s)
+        logger.info(f"KBO 스탯 수집 + 스플릿 계산 완료 (season={s})")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "season": s}
+
+
+@router.post("/compute-splits")
+async def trigger_compute_splits(season: int = Query(default=None)):
+    """DB 경기 데이터로 팀 타선 좌/우완 스플릿 OPS 계산"""
+    import asyncio
+    from datetime import date as date_cls
+
+    s = season or date_cls.today().year
+    logger.info(f"수동 트리거: 스플릿 OPS 계산 시작 (season={s})")
+
+    async def _run():
+        from app.tasks.compute_splits import run
+        await run(season=s)
+        logger.info(f"스플릿 OPS 계산 완료 (season={s})")
 
     asyncio.create_task(_run())
     return {"status": "started", "season": s}

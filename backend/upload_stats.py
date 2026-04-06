@@ -318,25 +318,29 @@ def scrape_team_batting(client: httpx.Client, season: int) -> list[dict]:
     if len(rows) < 3:
         return []
 
-    headers = [h.get_text(strip=True) for h in rows[0].find_all(["th", "td"])]
+    # statiz 타선 테이블은 헤더가 두 줄 — 합쳐서 인덱스 계산
+    headers0 = [h.get_text(strip=True) for h in rows[0].find_all(["th", "td"])]
+    headers1 = [h.get_text(strip=True) for h in rows[1].find_all(["th", "td"])]
+    headers = headers0 + headers1
     idx = {h: i for i, h in enumerate(headers)}
 
     i_name = idx.get("Name", 1)
     i_team = idx.get("Team", 2)
-    i_pa   = idx.get("PA",   4)
-    i_ops  = idx.get("OPS",  idx.get("OPS", 30))
-    i_so   = idx.get("SO",   idx.get("K",   20))
-    i_wrc  = idx.get("wRC+", idx.get("WRC+", idx.get("wRC", 35)))
+    i_pa   = idx.get("PA",   7)
+    i_so   = idx.get("SO",   idx.get("K", 22))
+    # statiz 타선 테이블 실제 데이터 행: AVG=26, OBP=27, SLG=28, OPS=29, R/ePA=30, wRC+=31, WAR=32
+    i_ops  = 29
+    i_wrc  = 31
     logger.info(f"타선 컬럼: name={i_name} team={i_team} pa={i_pa} ops={i_ops} so={i_so} wrc={i_wrc}")
 
-    # 팀별 집계
+    # 팀별 집계 (헤더 두 줄 건너뜀)
     team_data: dict[str, dict] = {}
-    for tr in rows[1:]:
+    for tr in rows[2:]:
         raw_cells = tr.find_all(["td", "th"])
         cells = [td.get_text(strip=True) for td in raw_cells]
         if not cells or cells[0] in ("", "WAR") or not cells[0].isdigit():
             continue
-        if len(cells) < max(i_ops, i_wrc) + 1:
+        if len(cells) < i_ops + 1:
             continue
         try:
             team_short = get_team_short(raw_cells, i_team, cells[i_team] if i_team < len(cells) else "")
@@ -352,7 +356,7 @@ def scrape_team_batting(client: httpx.Client, season: int) -> list[dict]:
             so  = float(so_s)  if so_s  and so_s  not in ("-", "") else 0
             wrc = float(wrc_s) if wrc_s and wrc_s not in ("-", "") else None
 
-            if pa < 10 or ops is None:
+            if pa < 3 or ops is None:
                 continue
 
             if team_short not in team_data:
@@ -370,7 +374,7 @@ def scrape_team_batting(client: httpx.Client, season: int) -> list[dict]:
 
     results = []
     for team_short, d in team_data.items():
-        if d["pa_sum"] < 50:
+        if d["pa_sum"] < 10:
             continue
         ops      = d["ops_sum"] / d["pa_sum"]
         wrc_plus = sum(d["wrc_vals"]) / len(d["wrc_vals"]) if d["wrc_vals"] else 100.0
