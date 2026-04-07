@@ -7,13 +7,14 @@ import dynamic from "next/dynamic"
 const CalendarView = dynamic(() => import("./CalendarView"), { ssr: false })
 const TeamTracker = dynamic(() => import("./TeamTracker"), { ssr: false })
 
-type Tab = "list" | "calendar" | "teams"
+type Tab = "list" | "calendar" | "teams" | "backtest"
 type League = "KBO" | "MLB"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "list", label: "📋 리스트" },
   { id: "calendar", label: "📅 캘린더" },
   { id: "teams", label: "🏆 팀별" },
+  { id: "backtest", label: "🧪 백테스트" },
 ]
 
 const LEAGUES: { id: League; label: string }[] = [
@@ -27,6 +28,21 @@ export default function HistoryPage() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
+  // 백테스트 상태
+  const currentYear = new Date().getFullYear()
+  const [btStart, setBtStart] = useState(`${currentYear - 1}-04-01`)
+  const [btEnd, setBtEnd] = useState(`${currentYear - 1}-09-30`)
+  const [btData, setBtData] = useState<any>(null)
+  const [btLoading, setBtLoading] = useState(false)
+
+  const runBacktest = () => {
+    setBtLoading(true)
+    setBtData(null)
+    getHistory(league, { from_date: btStart, to_date: btEnd, per_page: 1 })
+      .then((d) => setBtData(d))
+      .finally(() => setBtLoading(false))
+  }
 
   // 리그 변경 시 페이지 초기화
   const handleLeagueChange = (l: League) => {
@@ -171,6 +187,77 @@ export default function HistoryPage() {
 
       {tab === "calendar" && <CalendarView league={league} />}
       {tab === "teams" && <TeamTracker league={league} />}
+
+      {/* 백테스트 탭 */}
+      {tab === "backtest" && (
+        <div>
+          <p className="text-sm text-gray-500 mb-4">
+            과거 기간의 완료된 경기에 대한 모델 적중률을 분석합니다.
+            백테스트 실행 전에 <code className="bg-gray-100 px-1 rounded text-xs">/admin/backtest</code>로 해당 기간 예측을 먼저 생성하세요.
+          </p>
+
+          {/* 날짜 범위 선택 */}
+          <div className="bg-white rounded-xl border shadow-sm p-4 mb-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">시작일</label>
+                <input
+                  type="date"
+                  value={btStart}
+                  onChange={(e) => setBtStart(e.target.value)}
+                  className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">종료일</label>
+                <input
+                  type="date"
+                  value={btEnd}
+                  onChange={(e) => setBtEnd(e.target.value)}
+                  className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+              <button
+                onClick={runBacktest}
+                disabled={btLoading}
+                className="px-5 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50"
+              >
+                {btLoading ? "조회 중..." : "적중률 조회"}
+              </button>
+            </div>
+          </div>
+
+          {/* 결과 */}
+          {btData && (
+            <>
+              <div className="flex gap-3 mb-4 overflow-x-auto">
+                <StatCard label="총 예측" value={btData.summary?.total_predictions ?? 0} />
+                <StatCard label="적중" value={btData.summary?.correct ?? 0} />
+                <StatCard
+                  label="전체 적중률"
+                  value={btData.summary?.total_predictions > 0
+                    ? `${(btData.summary.accuracy * 100).toFixed(1)}%`
+                    : "-"}
+                  highlight
+                />
+                {Object.entries(btData.summary?.by_confidence ?? {}).map(([tier, s]: any) => (
+                  <StatCard
+                    key={tier}
+                    label={`${CONFIDENCE_LABELS[tier]} 신뢰도`}
+                    value={s.total > 0 ? `${(s.accuracy * 100).toFixed(1)}%` : "-"}
+                    sub={`${s.total}경기`}
+                  />
+                ))}
+              </div>
+              {btData.summary?.total_predictions === 0 && (
+                <div className="text-center py-8 text-gray-400 text-sm bg-white rounded-xl border">
+                  해당 기간에 예측 데이터가 없습니다. 먼저 백테스트 엔드포인트를 실행해주세요.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

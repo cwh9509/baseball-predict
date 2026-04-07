@@ -563,6 +563,77 @@ async def trigger_backfill(
     return {"status": "started", "start": str(s), "end": str(e), "league": target_league}
 
 
+@router.post("/backtest")
+async def trigger_backtest(
+    start: str = Query(..., description="시작일 YYYY-MM-DD"),
+    end: str = Query(..., description="종료일 YYYY-MM-DD"),
+    league: str = Query(..., description="리그 (KBO/MLB)"),
+):
+    """백테스트: 해당 기간의 완료된 경기에 예측을 생성하고 was_correct 계산.
+    이미 예측이 있는 경기는 건너뜀."""
+    from datetime import datetime
+    from sqlalchemy import select, and_
+    from app.core.database import AsyncSessionLocal
+    from app.models import Game, Prediction
+
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    lg = league.upper()
+
+    async def _run_backtest():
+        from app.ml.predictor import Predictor
+        from sqlalchemy import text
+
+        predictor = Predictor(league=lg)
+        predicted = 0
+        skipped = 0
+
+        async with AsyncSessionLocal() as db:
+            # 완료된 경기 중 예측 없는 것 조회
+            result = await db.execute(
+                select(Game).where(
+                    and_(
+                        Game.game_date >= s,
+                        Game.game_date <= e,
+                        Game.league == lg,
+                        Game.status == "final",
+                        Game.winner_team_id.isnot(None),
+                    )
+                ).order_by(Game.game_date)
+            )
+            games = result.scalars().all()
+            logger.info(f"[백테스트] {lg} {s}~{e}: 대상 {len(games)}경기")
+
+            for game in games:
+                # 이미 예측 있으면 건너뜀
+                existing = await db.execute(
+                    select(Prediction).where(Prediction.game_id == game.id).limit(1)
+                )
+                if existing.scalar_one_or_none():
+                    skipped += 1
+                    continue
+
+                try:
+                    pred_result = await predictor.predict(game.id, db)
+                    if pred_result:
+                        pred = Prediction(**pred_result)
+                        # was_correct 즉시 계산
+                        pred.was_correct = (pred_result["predicted_winner_id"] == game.winner_team_id)
+                        db.add(pred)
+                        predicted += 1
+                        if predicted % 50 == 0:
+                            await db.commit()
+                            logger.info(f"[백테스트] 진행 중: {predicted}경기 완료")
+                except Exception as ex:
+                    logger.warning(f"[백테스트] game_id={game.id} 예측 실패: {ex}")
+
+            await db.commit()
+        logger.info(f"[백테스트] 완료: {predicted}경기 예측, {skipped}경기 스킵")
+
+    _create_background_task(_run_backtest())
+    return {"status": "started", "league": lg, "start": start, "end": end}
+
+
 @router.post("/cache/flush")
 async def flush_cache(pattern: str = Query(default="games:*", description="삭제할 캐시 키 패턴")):
     """Redis 캐시 삭제 (기본: games:* 전체)"""

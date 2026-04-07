@@ -29,28 +29,28 @@ export default function LineupCard({ lineup, homeTeamName, awayTeamName }: Props
         )}
       </div>
 
-      {/* 선발투수 */}
+      {/* 선발투수 — 원정 왼쪽, 홈 오른쪽 */}
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="bg-blue-50 rounded-lg p-3 text-center">
-          <p className="text-xs text-gray-400 mb-1">홈 선발</p>
-          <p className="font-semibold text-gray-800 text-sm">{lineup.home_starter ?? "미정"}</p>
-          <p className="text-xs text-blue-600 mt-0.5">{homeTeamName}</p>
-        </div>
         <div className="bg-red-50 rounded-lg p-3 text-center">
           <p className="text-xs text-gray-400 mb-1">원정 선발</p>
           <p className="font-semibold text-gray-800 text-sm">{lineup.away_starter ?? "미정"}</p>
           <p className="text-xs text-red-600 mt-0.5">{awayTeamName}</p>
         </div>
+        <div className="bg-blue-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-400 mb-1">홈 선발</p>
+          <p className="font-semibold text-gray-800 text-sm">{lineup.home_starter ?? "미정"}</p>
+          <p className="text-xs text-blue-600 mt-0.5">{homeTeamName}</p>
+        </div>
       </div>
 
-      {/* 타순 */}
+      {/* 타순 — 원정 왼쪽, 홈 오른쪽 */}
       {hasLineup && (
         <div className="grid grid-cols-2 gap-3">
-          {/* 홈 타순 */}
+          {/* 원정 타순 */}
           <div>
-            <p className="text-xs font-medium text-blue-600 mb-1.5">{homeTeamName} 타순</p>
+            <p className="text-xs font-medium text-red-600 mb-1.5">{awayTeamName} 타순</p>
             <div className="space-y-1">
-              {lineup.home_lineup.map((p) => (
+              {lineup.away_lineup.map((p) => (
                 <div key={p.order} className="flex items-center gap-2 text-xs">
                   <span className="w-4 text-gray-400 text-right shrink-0">{p.order}</span>
                   <span className="w-6 text-center bg-gray-100 rounded text-gray-500 shrink-0">{posLabel(p.position)}</span>
@@ -59,11 +59,11 @@ export default function LineupCard({ lineup, homeTeamName, awayTeamName }: Props
               ))}
             </div>
           </div>
-          {/* 원정 타순 */}
+          {/* 홈 타순 */}
           <div>
-            <p className="text-xs font-medium text-red-600 mb-1.5">{awayTeamName} 타순</p>
+            <p className="text-xs font-medium text-blue-600 mb-1.5">{homeTeamName} 타순</p>
             <div className="space-y-1">
-              {lineup.away_lineup.map((p) => (
+              {lineup.home_lineup.map((p) => (
                 <div key={p.order} className="flex items-center gap-2 text-xs">
                   <span className="w-4 text-gray-400 text-right shrink-0">{p.order}</span>
                   <span className="w-6 text-center bg-gray-100 rounded text-gray-500 shrink-0">{posLabel(p.position)}</span>

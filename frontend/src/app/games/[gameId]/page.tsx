@@ -2,6 +2,7 @@ import { getPrediction } from "@/lib/api"
 import WinProbabilityBar from "@/components/predictions/WinProbabilityBar"
 import LineupCard from "@/components/predictions/LineupCard"
 import GameStatsCard from "@/components/predictions/GameStatsCard"
+import TeamLogo from "@/components/common/TeamLogo"
 import { cn, CONFIDENCE_COLORS, CONFIDENCE_LABELS, formatDate, formatProbability, getTeamDisplayName, getTeamFullKoName } from "@/lib/utils"
 
 export const revalidate = 1800
@@ -83,26 +84,41 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               </span>
             </div>
 
-            {/* 승리 확률 바 (홈 왼쪽) */}
+            {/* 팀 매치업 — 원정(왼쪽) vs 홈(오른쪽) */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-xs text-red-400 font-medium">원정</div>
+                <TeamLogo shortName={prediction.away_team?.short_name ?? ""} league={league} size={48} />
+                <div className="font-bold text-base">{awayShort}</div>
+              </div>
+              <div className="text-gray-300 text-lg font-light">vs</div>
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-xs text-blue-500 font-medium">홈</div>
+                <TeamLogo shortName={prediction.home_team?.short_name ?? ""} league={league} size={48} />
+                <div className="font-bold text-base">{homeShort}</div>
+              </div>
+            </div>
+
+            {/* 승리 확률 바 */}
             <WinProbabilityBar
               homeProb={prediction.home_win_prob}
               homeTeam={homeShort}
               awayTeam={awayShort}
             />
 
-            {/* 예상 스코어 (홈 – 원정) */}
+            {/* 예상 스코어 (원정 – 홈) */}
             {prediction.predicted_home_score != null && prediction.predicted_away_score != null && (
               <div className="mt-3 text-center">
                 <p className="text-gray-400 text-xs mb-1">예상 스코어</p>
                 <div className="flex items-center justify-center gap-3 text-2xl font-bold text-gray-800">
                   <div className="text-center">
-                    <div>{prediction.predicted_home_score}</div>
-                    <div className="text-xs text-blue-500 font-normal">홈</div>
+                    <div>{prediction.predicted_away_score}</div>
+                    <div className="text-xs text-red-400 font-normal">원정</div>
                   </div>
                   <span className="text-gray-400 text-lg">–</span>
                   <div className="text-center">
-                    <div>{prediction.predicted_away_score}</div>
-                    <div className="text-xs text-red-400 font-normal">원정</div>
+                    <div>{prediction.predicted_home_score}</div>
+                    <div className="text-xs text-blue-500 font-normal">홈</div>
                   </div>
                 </div>
               </div>

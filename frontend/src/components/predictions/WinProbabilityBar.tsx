@@ -21,29 +21,30 @@ export default function WinProbabilityBar({ homeProb, homeTeam, awayTeam }: Prop
 
   return (
     <div className="w-full">
+      {/* 원정 왼쪽, 홈 오른쪽 */}
       <div className="flex justify-between text-xs text-gray-500 mb-1">
-        <span className="text-blue-600 font-medium">{homeTeam}</span>
         <span className="text-red-500 font-medium">{awayTeam}</span>
+        <span className="text-blue-600 font-medium">{homeTeam}</span>
       </div>
       <div className="flex rounded-full overflow-hidden h-4 bg-gray-200">
         <div
-          className={`${homeColor} transition-all duration-500 flex items-center justify-center text-white text-xs font-bold`}
-          style={{ width: `${homePercent}%` }}
-        >
-          {homePercent >= 20 && `${homePercent}%`}
-        </div>
-        <div
-          className={`${awayColor} flex-1 flex items-center justify-end pr-1 text-white text-xs font-bold`}
+          className={`${awayColor} transition-all duration-500 flex items-center justify-center text-white text-xs font-bold`}
+          style={{ width: `${awayPercent}%` }}
         >
           {awayPercent >= 20 && `${awayPercent}%`}
         </div>
+        <div
+          className={`${homeColor} flex-1 flex items-center justify-end pr-1 text-white text-xs font-bold`}
+        >
+          {homePercent >= 20 && `${homePercent}%`}
+        </div>
       </div>
       <div className="flex justify-between text-sm font-semibold mt-1">
-        <span className={homeProb >= 0.5 ? "text-blue-600" : "text-gray-400"}>
-          {formatProbability(homeProb)}
-        </span>
         <span className={awayProb >= 0.5 ? "text-red-500" : "text-gray-400"}>
           {formatProbability(awayProb)}
+        </span>
+        <span className={homeProb >= 0.5 ? "text-blue-600" : "text-gray-400"}>
+          {formatProbability(homeProb)}
         </span>
       </div>
     </div>

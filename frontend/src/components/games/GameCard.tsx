@@ -2,6 +2,7 @@ import Link from "next/link"
 import type { Game } from "@/types/game"
 import { cn, CONFIDENCE_COLORS, CONFIDENCE_LABELS, getTeamDisplayName, getTeamFullKoName } from "@/lib/utils"
 import WinProbabilityBar from "@/components/predictions/WinProbabilityBar"
+import TeamLogo from "@/components/common/TeamLogo"
 
 interface Props {
   game: Game
@@ -33,18 +34,20 @@ export default function GameCard({ game, currentDate, league }: Props) {
         "bg-white rounded-xl border-2 shadow-sm p-4 hover:shadow-md transition-shadow cursor-pointer",
         BORDER_COLOR[tier]
       )}>
-        {/* 팀 매치업 — 홈(왼쪽) vs 원정(오른쪽) */}
+        {/* 팀 매치업 — 원정(왼쪽) vs 홈(오른쪽) */}
         <div className="flex items-center justify-between mb-3">
-          <div className="text-center flex-1">
-            <div className="text-xs text-blue-500 font-medium mb-0.5">홈</div>
-            <div className="font-bold text-lg">{homeShort}</div>
-            <div className="text-xs text-gray-500 truncate max-w-24">{homeFull}</div>
-          </div>
-          <div className="px-3 text-gray-400 font-light text-sm">vs</div>
-          <div className="text-center flex-1">
-            <div className="text-xs text-red-400 font-medium mb-0.5">원정</div>
+          <div className="flex flex-col items-center flex-1 gap-1">
+            <div className="text-xs text-red-400 font-medium">원정</div>
+            <TeamLogo shortName={game.away_team.short_name} league={league} size={36} />
             <div className="font-bold text-lg">{awayShort}</div>
             <div className="text-xs text-gray-500 truncate max-w-24">{awayFull}</div>
+          </div>
+          <div className="px-3 text-gray-400 font-light text-sm">vs</div>
+          <div className="flex flex-col items-center flex-1 gap-1">
+            <div className="text-xs text-blue-500 font-medium">홈</div>
+            <TeamLogo shortName={game.home_team.short_name} league={league} size={36} />
+            <div className="font-bold text-lg">{homeShort}</div>
+            <div className="text-xs text-gray-500 truncate max-w-24">{homeFull}</div>
           </div>
         </div>
 
@@ -57,11 +60,11 @@ export default function GameCard({ game, currentDate, league }: Props) {
           />
         )}
 
-        {/* 예상 스코어 (홈 – 원정) */}
+        {/* 예상 스코어 (원정 – 홈) */}
         {game.prediction?.predicted_home_score != null && game.prediction?.predicted_away_score != null && (
           <div className="flex justify-center mt-2 mb-1">
             <span className="text-sm font-semibold text-gray-600 bg-gray-50 px-3 py-0.5 rounded-full border">
-              예상 {game.prediction.predicted_home_score} – {game.prediction.predicted_away_score}
+              예상 {game.prediction.predicted_away_score} – {game.prediction.predicted_home_score}
             </span>
           </div>
         )}

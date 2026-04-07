@@ -71,6 +71,39 @@ export function getTeamFullKoName(shortName: string, fullName: string, league?: 
   return fullName
 }
 
+// MLB 팀 ID (statsapi) → 로고 URL용
+export const MLB_TEAM_ID: Record<string, number> = {
+  ARI: 109, ATL: 144, BAL: 110, BOS: 111, CHC: 112,
+  CWS: 145, CIN: 113, CLE: 114, COL: 115, DET: 116,
+  HOU: 117, KC: 118, LAA: 108, LAD: 119, MIA: 146,
+  MIL: 158, MIN: 142, NYM: 121, NYY: 147, OAK: 133,
+  PHI: 143, PIT: 134, SD: 135, SF: 137, SEA: 136,
+  STL: 138, TB: 139, TEX: 140, TOR: 141, WSH: 120,
+}
+
+// KBO 팀 로고 URL (KBO 공식 CDN)
+export const KBO_TEAM_LOGO: Record<string, string> = {
+  KIA: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kia.png",
+  삼성: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_samsung.png",
+  LG: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_lg.png",
+  두산: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_doosan.png",
+  KT: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kt.png",
+  SSG: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_ssg.png",
+  롯데: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_lotte.png",
+  한화: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_hanwha.png",
+  NC: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_nc.png",
+  키움: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kiwoom.png",
+}
+
+export function getTeamLogoUrl(shortName: string, league?: string): string | null {
+  if (league === "MLB") {
+    const id = MLB_TEAM_ID[shortName]
+    return id ? `https://www.mlbstatic.com/team-logos/${id}.svg` : null
+  }
+  // KBO: shortName이 한글(두산, LG 등)이거나 영문(KIA, SSG 등)일 수 있음
+  return KBO_TEAM_LOGO[shortName] ?? null
+}
+
 export const IMPACT_ICONS: Record<string, string> = {
   positive: "▲",
   negative: "▼",

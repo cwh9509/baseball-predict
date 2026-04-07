@@ -82,8 +82,9 @@ function CompareRow({ label, home, away, fmt: fmtFn = fmt, digits, lowerBetter =
   return (
     <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-gray-50">
       <div className="text-xs text-gray-400">{label}</div>
-      <div className={`text-center text-sm font-medium ${imputed ? "text-orange-400" : hBetter ? "text-blue-600" : "text-gray-800"}`}>{h ?? "-"}</div>
+      {/* 원정 왼쪽, 홈 오른쪽 */}
       <div className={`text-center text-sm font-medium ${imputed ? "text-orange-400" : aBetter ? "text-red-600" : "text-gray-800"}`}>{a ?? "-"}</div>
+      <div className={`text-center text-sm font-medium ${imputed ? "text-orange-400" : hBetter ? "text-blue-600" : "text-gray-800"}`}>{h ?? "-"}</div>
     </div>
   )
 }
@@ -112,15 +113,15 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
         {/* 헤더 */}
         <div className="grid grid-cols-3 gap-2 mb-1">
           <div />
-          <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
           <div className="text-center text-xs font-medium text-red-600">{awayTeamName}</div>
+          <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
         </div>
 
-        {/* 투구방향 */}
+        {/* 투구방향 — 원정 왼쪽, 홈 오른쪽 */}
         <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-gray-50">
           <div className="text-xs text-gray-400">투구방향</div>
-          <div className="flex justify-center"><HandsBadge isLhp={s.home_sp_throws_is_lhp} /></div>
           <div className="flex justify-center"><HandsBadge isLhp={s.away_sp_throws_is_lhp} /></div>
+          <div className="flex justify-center"><HandsBadge isLhp={s.home_sp_throws_is_lhp} /></div>
         </div>
 
         <CompareRow label="ERA (시즌)"     home={s.home_sp_era_season}  away={s.away_sp_era_season}  lowerBetter imputed={homeImputed || awayImputed} />
@@ -136,16 +137,16 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
           </>
         )}
 
-        {/* 에이스/피로 */}
+        {/* 에이스/피로 — 원정 왼쪽, 홈 오른쪽 */}
         <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-gray-50">
           <div className="text-xs text-gray-400">에이스 / 피로</div>
           <div className="text-center text-xs">
-            {s.home_sp_is_ace ? "⭐ 에이스" : ""}{s.home_sp_is_fatigued ? " ⚠️ 피로" : ""}
-            {!s.home_sp_is_ace && !s.home_sp_is_fatigued && <span className="text-gray-300">-</span>}
-          </div>
-          <div className="text-center text-xs">
             {s.away_sp_is_ace ? "⭐ 에이스" : ""}{s.away_sp_is_fatigued ? " ⚠️ 피로" : ""}
             {!s.away_sp_is_ace && !s.away_sp_is_fatigued && <span className="text-gray-300">-</span>}
+          </div>
+          <div className="text-center text-xs">
+            {s.home_sp_is_ace ? "⭐ 에이스" : ""}{s.home_sp_is_fatigued ? " ⚠️ 피로" : ""}
+            {!s.home_sp_is_ace && !s.home_sp_is_fatigued && <span className="text-gray-300">-</span>}
           </div>
         </div>
       </div>
@@ -168,16 +169,8 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
       {isMLB && (homeIlCount > 0 || awayIlCount > 0) && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
           <h3 className="text-sm font-semibold text-amber-700 mb-2">🏥 부상자 명단 (IL)</h3>
+          {/* 원정 왼쪽, 홈 오른쪽 */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="text-center">
-              <div className="text-xs text-gray-500 mb-1">{homeTeamName}</div>
-              <div className={`text-2xl font-bold ${homeIlCount >= 5 ? "text-red-600" : homeIlCount >= 3 ? "text-orange-500" : "text-gray-700"}`}>
-                {homeIlCount}명
-              </div>
-              {s.home_il_impact != null && (
-                <div className="text-xs text-gray-400 mt-0.5">영향도 {Number(s.home_il_impact).toFixed(1)}</div>
-              )}
-            </div>
             <div className="text-center">
               <div className="text-xs text-gray-500 mb-1">{awayTeamName}</div>
               <div className={`text-2xl font-bold ${awayIlCount >= 5 ? "text-red-600" : awayIlCount >= 3 ? "text-orange-500" : "text-gray-700"}`}>
@@ -185,6 +178,15 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
               </div>
               {s.away_il_impact != null && (
                 <div className="text-xs text-gray-400 mt-0.5">영향도 {Number(s.away_il_impact).toFixed(1)}</div>
+              )}
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-gray-500 mb-1">{homeTeamName}</div>
+              <div className={`text-2xl font-bold ${homeIlCount >= 5 ? "text-red-600" : homeIlCount >= 3 ? "text-orange-500" : "text-gray-700"}`}>
+                {homeIlCount}명
+              </div>
+              {s.home_il_impact != null && (
+                <div className="text-xs text-gray-400 mt-0.5">영향도 {Number(s.home_il_impact).toFixed(1)}</div>
               )}
             </div>
           </div>
@@ -196,8 +198,8 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
         <h3 className="text-sm font-semibold text-gray-700 mb-3">🏏 팀 타선</h3>
         <div className="grid grid-cols-3 gap-2 mb-1">
           <div />
-          <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
           <div className="text-center text-xs font-medium text-red-600">{awayTeamName}</div>
+          <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
         </div>
         <CompareRow label="OPS"     home={s.home_lineup_ops}            away={s.away_lineup_ops} />
         <CompareRow label="유효 OPS (vs 상대투수)" home={s.home_lineup_split_ops ?? s.home_lineup_effective_ops} away={s.away_lineup_split_ops ?? s.away_lineup_effective_ops} />
@@ -209,9 +211,10 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
       <div className="bg-white rounded-xl border shadow-sm p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">📈 최근 흐름</h3>
         <div className="grid grid-cols-2 gap-4">
+          {/* 원정 왼쪽, 홈 오른쪽 */}
           {[
-            { label: homeTeamName, color: "text-blue-600", recent: homeRecent, prefix: "home" },
             { label: awayTeamName, color: "text-red-600",  recent: awayRecent, prefix: "away" },
+            { label: homeTeamName, color: "text-blue-600", recent: homeRecent, prefix: "home" },
           ].map(({ label, color, recent, prefix }) => (
             <div key={prefix}>
               <p className={`text-xs font-medium ${color} mb-2`}>{label}</p>
