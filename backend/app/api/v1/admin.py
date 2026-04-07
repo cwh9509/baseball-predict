@@ -146,31 +146,18 @@ async def trigger_retrain(league: str = Query(default=None)):
     """모델 수동 재학습 트리거. league=MLB 로 지정 가능 (기본: 설정값)"""
     import asyncio
 
-    async def _run(target_league: str):
-        from app.config import settings
-        from app.ml.trainer import Trainer
-        original = settings.league
-        settings.league = target_league
-        try:
-            trainer = Trainer()
-            await trainer.retrain()
-            logger.info(f"{target_league} 모델 재학습 완료")
-        finally:
-            settings.league = original
-
-    target = league.upper() if league else None
     from app.config import settings
-    if target and target != settings.league:
-        asyncio.create_task(_run(target))
-        logger.info(f"수동 재학습 트리거: {target}")
-        return {"status": "started", "league": target}
-    else:
-        async def _run_default():
-            from app.tasks.model_retrain import run
-            await run()
-        asyncio.create_task(_run_default())
-        logger.info(f"수동 재학습 트리거: {settings.league}")
-        return {"status": "started", "league": settings.league}
+    target = league.upper() if league else settings.league
+
+    async def _run(lg: str):
+        from app.ml.trainer import Trainer
+        trainer = Trainer(league=lg)
+        await trainer.retrain()
+        logger.info(f"{lg} 모델 재학습 완료")
+
+    asyncio.create_task(_run(target))
+    logger.info(f"수동 재학습 트리거: {target}")
+    return {"status": "started", "league": target}
 
 
 @router.post("/collect")

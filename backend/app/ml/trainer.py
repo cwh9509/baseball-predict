@@ -30,11 +30,14 @@ N_CV_SPLITS = 5
 
 class Trainer:
 
+    def __init__(self, league: str | None = None):
+        self.league = (league or settings.league).upper()
+
     async def retrain(self) -> str:
         """전체 재학습 파이프라인 실행"""
-        logger.info("모델 재학습 시작 (Optuna + XGBoost + LightGBM + CatBoost + Stacking)")
+        logger.info(f"모델 재학습 시작 [{self.league}] (Optuna + XGBoost + LightGBM + CatBoost + Stacking)")
 
-        invalidate_elo_cache(settings.league)
+        invalidate_elo_cache(self.league)
 
         version = datetime.now().strftime("%Y%m%d")
 
@@ -78,14 +81,14 @@ class Trainer:
         meta_model = await asyncio.to_thread(
             self._build_stacking_model, xgb_model, lgb_model, cat_model, X, y, tscv
         )
-        save_meta_model(meta_model, version, league=settings.league)
+        save_meta_model(meta_model, version, league=self.league)
         logger.info("Stacking 메타 모델 저장 완료")
 
         # ── 7. 앙상블 CV 정확도 ────────────────────────────────────────
         self._log_ensemble_cv(xgb_model, lgb_model, cat_model, meta_model, X, y, tscv)
 
         # ── 8. 피처 중요도 ─────────────────────────────────────────────
-        feature_cols = get_feature_columns(settings.league) + ["predicted_score_diff"]
+        feature_cols = get_feature_columns(self.league) + ["predicted_score_diff"]
         importances = xgb_model.feature_importances_
         top5 = np.argsort(importances)[::-1][:5]
         logger.info("XGBoost 상위 피처:")
@@ -133,7 +136,7 @@ class Trainer:
             **best, eval_metric="logloss", random_state=42, n_jobs=-1
         )
         final_model.fit(X, y)
-        save_xgb_model(final_model, version, league=settings.league)
+        save_xgb_model(final_model, version, league=self.league)
         return final_model
 
     def _tune_and_fit_lgb(self, X, y, tscv, version: str):
@@ -168,7 +171,7 @@ class Trainer:
 
         final_model = lgb.LGBMClassifier(**best, random_state=42, verbose=-1, n_jobs=-1)
         final_model.fit(X, y)
-        save_lgb_model(final_model, version, league=settings.league)
+        save_lgb_model(final_model, version, league=self.league)
         return final_model
 
     def _tune_and_fit_catboost(self, X, y, tscv, version: str):
@@ -204,7 +207,7 @@ class Trainer:
 
         final_model = CatBoostClassifier(**best, random_seed=42, verbose=0, allow_writing_files=False)
         final_model.fit(X, y)
-        save_cat_model(final_model, version, league=settings.league)
+        save_cat_model(final_model, version, league=self.league)
         return final_model
 
     def _build_stacking_model(self, xgb_model, lgb_model, cat_model, X, y, tscv):
@@ -291,7 +294,7 @@ class Trainer:
         )
         home_model.fit(X, y_home)
         away_model.fit(X, y_away)
-        save_score_models(home_model, away_model, version, league=settings.league)
+        save_score_models(home_model, away_model, version, league=self.league)
         logger.info("스코어 회귀 모델 저장 완료")
         return home_model, away_model
 
@@ -309,7 +312,7 @@ class Trainer:
                     Game.winner_team_id.isnot(None),
                     Game.home_score.isnot(None),
                     Game.away_score.isnot(None),
-                    Game.league == settings.league,
+                    Game.league == self.league,
                 ).order_by(Game.game_date.asc())
             )
             games = result.scalars().all()
@@ -339,7 +342,7 @@ class Trainer:
                 select(Game).where(
                     Game.status == "final",
                     Game.winner_team_id.isnot(None),
-                    Game.league == settings.league,
+                    Game.league == self.league,
                 ).order_by(Game.game_date.asc())
             )
             games = result.scalars().all()

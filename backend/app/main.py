@@ -88,14 +88,9 @@ def create_app() -> FastAPI:
                 logger.warning(f"{_auto_league} 모델 파일 없음 — 자동 재학습 시작")
                 async def _auto_retrain(lg=_auto_league):
                     from app.ml.trainer import Trainer
-                    original = settings.league
-                    settings.league = lg
-                    try:
-                        trainer = Trainer()
-                        await trainer.retrain()
-                        logger.info(f"{lg} 자동 재학습 완료")
-                    finally:
-                        settings.league = original
+                    trainer = Trainer(league=lg)
+                    await trainer.retrain()
+                    logger.info(f"{lg} 자동 재학습 완료")
                 import asyncio
                 asyncio.create_task(_auto_retrain())
 
