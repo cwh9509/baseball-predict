@@ -590,45 +590,44 @@ async def trigger_backtest(
             skipped = 0
 
             async with AsyncSessionLocal() as db:
-            # 완료된 경기 중 예측 없는 것 조회
-            result = await db.execute(
-                select(Game).where(
-                    and_(
-                        Game.game_date >= s,
-                        Game.game_date <= e,
-                        Game.league == lg,
-                        Game.status == "final",
-                        Game.winner_team_id.isnot(None),
-                    )
-                ).order_by(Game.game_date)
-            )
-            games = result.scalars().all()
-            logger.info(f"[백테스트] {lg} {s}~{e}: 대상 {len(games)}경기")
-
-            for game in games:
-                # 이미 예측 있으면 건너뜀
-                existing = await db.execute(
-                    select(Prediction).where(Prediction.game_id == game.id).limit(1)
+                # 완료된 경기 중 예측 없는 것 조회
+                result = await db.execute(
+                    select(Game).where(
+                        and_(
+                            Game.game_date >= s,
+                            Game.game_date <= e,
+                            Game.league == lg,
+                            Game.status == "final",
+                            Game.winner_team_id.isnot(None),
+                        )
+                    ).order_by(Game.game_date)
                 )
-                if existing.scalar_one_or_none():
-                    skipped += 1
-                    continue
+                games = result.scalars().all()
+                logger.info(f"[백테스트] {lg} {s}~{e}: 대상 {len(games)}경기")
 
-                try:
-                    pred_result = await predictor.predict(game.id, db)
-                    if pred_result:
-                        pred = Prediction(**pred_result)
-                        # was_correct 즉시 계산
-                        pred.was_correct = (pred_result["predicted_winner_id"] == game.winner_team_id)
-                        db.add(pred)
-                        predicted += 1
-                        if predicted % 50 == 0:
-                            await db.commit()
-                            logger.info(f"[백테스트] 진행 중: {predicted}경기 완료")
-                except Exception as ex:
-                    logger.warning(f"[백테스트] game_id={game.id} 예측 실패: {ex}")
+                for game in games:
+                    # 이미 예측 있으면 건너뜀
+                    existing = await db.execute(
+                        select(Prediction).where(Prediction.game_id == game.id).limit(1)
+                    )
+                    if existing.scalar_one_or_none():
+                        skipped += 1
+                        continue
 
-            await db.commit()
+                    try:
+                        pred_result = await predictor.predict(game.id, db)
+                        if pred_result:
+                            pred = Prediction(**pred_result)
+                            pred.was_correct = (pred_result["predicted_winner_id"] == game.winner_team_id)
+                            db.add(pred)
+                            predicted += 1
+                            if predicted % 50 == 0:
+                                await db.commit()
+                                logger.info(f"[백테스트] 진행 중: {predicted}경기 완료")
+                    except Exception as ex:
+                        logger.warning(f"[백테스트] game_id={game.id} 예측 실패: {ex}")
+
+                await db.commit()
             logger.info(f"[백테스트] 완료: {predicted}경기 예측, {skipped}경기 스킵")
         except Exception as e:
             logger.error(f"[백테스트] 치명적 오류: {e}", exc_info=True)
