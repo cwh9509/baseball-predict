@@ -29,6 +29,48 @@ export const CONFIDENCE_COLORS: Record<string, string> = {
   low: "text-gray-500 bg-gray-50 border-gray-200",
 }
 
+// MLB 팀 한글 이름 매핑
+export const MLB_TEAM_KO: Record<string, string> = {
+  // AL East
+  NYY: "뉴욕 양키스", BOS: "보스턴 레드삭스", TOR: "토론토 블루제이스",
+  TB: "탬파베이 레이스", BAL: "볼티모어 오리올스",
+  // AL Central
+  CLE: "클리블랜드 가디언스", MIN: "미네소타 트윈스", CWS: "시카고 화이트삭스",
+  KC: "캔자스시티 로열스", DET: "디트로이트 타이거스",
+  // AL West
+  HOU: "휴스턴 애스트로스", SEA: "시애틀 매리너스", LAA: "로스앤젤레스 에인절스",
+  OAK: "오클랜드 애슬레틱스", TEX: "텍사스 레인저스",
+  // NL East
+  ATL: "애틀랜타 브레이브스", NYM: "뉴욕 메츠", PHI: "필라델피아 필리스",
+  MIA: "마이애미 말린스", WSH: "워싱턴 내셔널스",
+  // NL Central
+  MIL: "밀워키 브루어스", STL: "세인트루이스 카디널스", CHC: "시카고 컵스",
+  CIN: "신시내티 레즈", PIT: "피츠버그 파이리츠",
+  // NL West
+  LAD: "LA 다저스", SF: "샌프란시스코 자이언츠", SD: "샌디에이고 파드리스",
+  COL: "콜로라도 로키스", ARI: "애리조나 다이아몬드백스",
+}
+
+// MLB 팀 단축 한글 이름 (카드용)
+export const MLB_TEAM_SHORT_KO: Record<string, string> = {
+  NYY: "양키스", BOS: "레드삭스", TOR: "블루제이스", TB: "레이스", BAL: "오리올스",
+  CLE: "가디언스", MIN: "트윈스", CWS: "화이트삭스", KC: "로열스", DET: "타이거스",
+  HOU: "애스트로스", SEA: "매리너스", LAA: "에인절스", OAK: "애슬레틱스", TEX: "레인저스",
+  ATL: "브레이브스", NYM: "메츠", PHI: "필리스", MIA: "말린스", WSH: "내셔널스",
+  MIL: "브루어스", STL: "카디널스", CHC: "컵스", CIN: "레즈", PIT: "파이리츠",
+  LAD: "다저스", SF: "자이언츠", SD: "파드리스", COL: "로키스", ARI: "다이아몬드백스",
+}
+
+export function getTeamDisplayName(shortName: string, fullName: string, league?: string): string {
+  if (league === "MLB") return MLB_TEAM_SHORT_KO[shortName] ?? shortName
+  return shortName
+}
+
+export function getTeamFullKoName(shortName: string, fullName: string, league?: string): string {
+  if (league === "MLB") return MLB_TEAM_KO[shortName] ?? fullName
+  return fullName
+}
+
 export const IMPACT_ICONS: Record<string, string> = {
   positive: "▲",
   negative: "▼",

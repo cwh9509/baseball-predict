@@ -2,7 +2,7 @@ import { getPrediction } from "@/lib/api"
 import WinProbabilityBar from "@/components/predictions/WinProbabilityBar"
 import LineupCard from "@/components/predictions/LineupCard"
 import GameStatsCard from "@/components/predictions/GameStatsCard"
-import { cn, CONFIDENCE_COLORS, CONFIDENCE_LABELS, formatDate, formatProbability } from "@/lib/utils"
+import { cn, CONFIDENCE_COLORS, CONFIDENCE_LABELS, formatDate, formatProbability, getTeamDisplayName, getTeamFullKoName } from "@/lib/utils"
 
 export const revalidate = 1800
 
@@ -41,6 +41,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
 
   const homeWin = prediction.home_win_prob >= 0.5
   const tier = prediction.confidence_tier
+  const league = backLeague
+  const homeShort = getTeamDisplayName(prediction.home_team?.short_name ?? "", prediction.home_team?.name ?? "홈팀", league)
+  const awayShort = getTeamDisplayName(prediction.away_team?.short_name ?? "", prediction.away_team?.name ?? "원정팀", league)
+  const homeFull = getTeamFullKoName(prediction.home_team?.short_name ?? "", prediction.home_team?.name ?? "홈팀", league)
+  const awayFull = getTeamFullKoName(prediction.away_team?.short_name ?? "", prediction.away_team?.name ?? "원정팀", league)
   // prediction.game_date 우선 사용 (searchParams.date 없을 때도 경기 날짜로 돌아감)
   const finalBackDate = resolvedDate ?? prediction.game_date
   const finalBackUrl = finalBackDate
@@ -78,21 +83,28 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               </span>
             </div>
 
-            {/* 승리 확률 바 (원정 vs 홈) */}
+            {/* 승리 확률 바 (홈 왼쪽) */}
             <WinProbabilityBar
               homeProb={prediction.home_win_prob}
-              homeTeam={prediction.home_team?.short_name ?? "홈팀"}
-              awayTeam={prediction.away_team?.short_name ?? "원정팀"}
-              awayLeft
+              homeTeam={homeShort}
+              awayTeam={awayShort}
             />
 
-            {/* 예상 스코어 (원정 – 홈) */}
+            {/* 예상 스코어 (홈 – 원정) */}
             {prediction.predicted_home_score != null && prediction.predicted_away_score != null && (
               <div className="mt-3 text-center">
                 <p className="text-gray-400 text-xs mb-1">예상 스코어</p>
-                <p className="text-2xl font-bold text-gray-800">
-                  {prediction.predicted_away_score} <span className="text-gray-400 text-lg">–</span> {prediction.predicted_home_score}
-                </p>
+                <div className="flex items-center justify-center gap-3 text-2xl font-bold text-gray-800">
+                  <div className="text-center">
+                    <div>{prediction.predicted_home_score}</div>
+                    <div className="text-xs text-blue-500 font-normal">홈</div>
+                  </div>
+                  <span className="text-gray-400 text-lg">–</span>
+                  <div className="text-center">
+                    <div>{prediction.predicted_away_score}</div>
+                    <div className="text-xs text-red-400 font-normal">원정</div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -112,8 +124,8 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           {prediction.lineup && (
             <LineupCard
               lineup={prediction.lineup}
-              homeTeamName={prediction.home_team?.name ?? "홈팀"}
-              awayTeamName={prediction.away_team?.name ?? "원정팀"}
+              homeTeamName={homeFull}
+              awayTeamName={awayFull}
             />
           )}
           {!prediction.lineup && (
@@ -126,8 +138,8 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         {/* 우측: 팀 스탯 */}
         <GameStatsCard
           prediction={prediction}
-          homeTeamName={prediction.home_team?.name ?? "홈팀"}
-          awayTeamName={prediction.away_team?.name ?? "원정팀"}
+          homeTeamName={homeFull}
+          awayTeamName={awayFull}
         />
       </div>
     </div>
