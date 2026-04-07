@@ -2,7 +2,7 @@
 원시 데이터 → DB 저장 가능한 형태로 변환
 수집기의 Raw 데이터클래스를 SQLAlchemy 모델 생성용 딕셔너리로 변환
 """
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone as dt_timezone
 from typing import Optional
 
 from dateutil import tz
@@ -11,12 +11,16 @@ from app.collectors.base_collector import GameRaw, GameLogRaw, PitcherStatsRaw, 
 
 _UTC = tz.UTC
 _ET = tz.gettz("America/New_York")
+# TIME WITH TIME ZONE 컬럼에 naive time을 넣으면 asyncpg 에러 발생
+# 현지 시각을 UTC offset=0으로 표기해서 저장 (표시용 시각이므로 offset 무관)
+_STORE_TZ = dt_timezone.utc
 
 
 def _parse_game_time(game_time_local: Optional[str], league: str) -> Optional[time]:
     """game_time_local 문자열을 경기 현지 시각 time 객체로 변환.
     MLB: UTC ISO datetime → ET(미동부) 시각
     KBO/NPB: HH:MM 형식 그대로 사용 (KST)
+    반환값은 timezone-aware (UTC offset=0으로 표기)
     """
     if not game_time_local:
         return None
@@ -25,11 +29,12 @@ def _parse_game_time(game_time_local: Optional[str], league: str) -> Optional[ti
             # MLB: statsapi에서 UTC datetime 문자열 "YYYY-MM-DDTHH:MM" 형식
             dt_utc = datetime.fromisoformat(game_time_local).replace(tzinfo=_UTC)
             dt_et = dt_utc.astimezone(_ET)
-            return dt_et.time().replace(tzinfo=None)
+            t = dt_et.time()
+            return t.replace(tzinfo=_STORE_TZ)
         else:
-            # KBO/NPB: "HH:MM" 현지 시각
+            # KBO/NPB: "HH:MM" 또는 "HH:MM:SS" 현지 시각
             parts = game_time_local.split(":")
-            return time(int(parts[0]), int(parts[1]))
+            return time(int(parts[0]), int(parts[1]), tzinfo=_STORE_TZ)
     except Exception:
         return None
 
