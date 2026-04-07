@@ -179,15 +179,23 @@ class PybaseballCollector(BaseCollector):
             return []
 
     def _df_to_game_raws(self, df: pd.DataFrame, target_date: date) -> list[GameRaw]:
+        # 정규시즌(R)·포스트시즌(P·F·D·L·W) 만 포함, 스프링캠프(S)·마이너(E) 제외
+        _VALID_GAME_TYPES = {"R", "F", "D", "L", "W", "P"}
         games = []
         for _, row in df.iterrows():
+            if row.get("game_type") and row.get("game_type") not in _VALID_GAME_TYPES:
+                continue
+            home_short = _resolve_mlb_short(row.get("home_name", ""))
+            away_short = _resolve_mlb_short(row.get("away_name", ""))
+            if not home_short or not away_short:
+                continue
             games.append(
                 GameRaw(
                     external_game_id=str(row.get("game_id", "")),
                     league="MLB",
                     game_date=target_date,
-                    home_team_short=_resolve_mlb_short(row.get("home_name", "")),
-                    away_team_short=_resolve_mlb_short(row.get("away_name", "")),
+                    home_team_short=home_short,
+                    away_team_short=away_short,
                     venue=row.get("venue_name", ""),
                     status=row.get("status", "scheduled").lower(),
                     home_score=row.get("home_score") if row.get("status") == "Final" else None,
