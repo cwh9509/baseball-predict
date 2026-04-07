@@ -305,6 +305,7 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
     if confirmed and final_home_starter and final_away_starter and not game.lineup_locked:
         updates["lineup_locked"] = True
         updates["lineup_locked_at"] = now
+        changed = True  # 라인업 확정 자체도 재예측 트리거
 
     if updates:
         updates["updated_at"] = now
