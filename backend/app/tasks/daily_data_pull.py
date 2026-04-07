@@ -12,8 +12,13 @@ logger = logging.getLogger(__name__)
 async def run() -> None:
     yesterday = date.today() - timedelta(days=1)
     logger.info(f"전날 경기 결과 수집 시작: {yesterday}")
-    runner = ETLRunner()
-    await runner.run_results(yesterday)
+    for league in ["KBO", "MLB"]:
+        try:
+            runner = ETLRunner(league=league)
+            await runner.run_results(yesterday)
+            logger.info(f"{league} 경기 결과 수집 완료")
+        except Exception as e:
+            logger.error(f"{league} 경기 결과 수집 실패: {e}", exc_info=True)
     logger.info("전날 경기 결과 수집 완료")
 
 
