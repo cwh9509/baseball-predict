@@ -88,19 +88,75 @@ class NaverLineupCollector:
         """
         naver_id = _naver_game_id(kbo_game_id)
 
-        # 1) 모바일 페이지 스크래핑 (가장 신뢰도 높음)
-        result = await asyncio.to_thread(self._fetch_mobile_page_lineup, naver_id)
+        # 1) record 엔드포인트 (타순 + 선발투수 전부 있음)
+        result = await asyncio.to_thread(self._fetch_record_endpoint, naver_id)
         if result:
             return result
 
-        # 2) lineup API 엔드포인트 시도
+        # 2) lineup API 엔드포인트
         result = await asyncio.to_thread(self._fetch_lineup_endpoint, naver_id)
         if result:
             return result
 
-        # 3) preview 엔드포인트 폴백 (선발투수만)
+        # 3) preview 폴백 (선발투수만)
         result = await asyncio.to_thread(self._fetch_preview_endpoint, naver_id)
         return result
+
+    def _fetch_record_endpoint(self, naver_id: str) -> Optional[dict]:
+        """record 엔드포인트에서 battersBoxscore + pitchersBoxscore 파싱"""
+        try:
+            time.sleep(0.3)
+            resp = httpx.get(
+                f"{NAVER_API_BASE}/{naver_id}/record",
+                headers=NAVER_HEADERS,
+                timeout=10,
+                follow_redirects=True,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            record = data.get("result", {}).get("recordData", {})
+            if not record:
+                return None
+
+            pitchers = record.get("pitchersBoxscore", {})
+            batters = record.get("battersBoxscore", {})
+
+            away_pitchers = pitchers.get("away") or []
+            home_pitchers = pitchers.get("home") or []
+            away_batters = batters.get("away") or []
+            home_batters = batters.get("home") or []
+
+            away_starter = away_pitchers[0].get("name") if away_pitchers else None
+            home_starter = home_pitchers[0].get("name") if home_pitchers else None
+
+            away_lineup = [
+                {"order": b.get("batOrder", i + 1), "name": b.get("name", ""), "position": b.get("pos", "")}
+                for i, b in enumerate(away_batters) if b.get("name")
+            ]
+            home_lineup = [
+                {"order": b.get("batOrder", i + 1), "name": b.get("name", ""), "position": b.get("pos", "")}
+                for i, b in enumerate(home_batters) if b.get("name")
+            ]
+
+            if not away_starter and not home_starter and not away_lineup and not home_lineup:
+                return None
+
+            logger.info(
+                f"Naver record 라인업 수집 ({naver_id}): "
+                f"home={home_starter} away={away_starter} "
+                f"home_lineup={len(home_lineup)}명 away_lineup={len(away_lineup)}명"
+            )
+            return {
+                "home_starter": home_starter,
+                "away_starter": away_starter,
+                "home_lineup": home_lineup,
+                "away_lineup": away_lineup,
+                "source": "naver_record",
+            }
+        except Exception as e:
+            logger.debug(f"Naver record endpoint 실패 ({naver_id}): {e}")
+            return None
 
     def _fetch_mobile_page_lineup(self, naver_id: str) -> Optional[dict]:
         """https://m.sports.naver.com/game/{naver_id}/lineup 스크래핑"""
@@ -116,9 +172,20 @@ class NaverLineupCollector:
                 return None
 
             soup = BeautifulSoup(resp.text, "lxml")
+
+            # __NEXT_DATA__ 시도
             script = soup.find("script", id="__NEXT_DATA__")
             if not script:
-                logger.warning(f"Naver mobile __NEXT_DATA__ 없음 ({naver_id})")
+                # 다른 인라인 스크립트에서 JSON 데이터 탐색
+                for s in soup.find_all("script"):
+                    txt = s.string or ""
+                    if "lineUp" in txt or "homeBatter" in txt or "startingPitcher" in txt:
+                        logger.info(f"Naver mobile 인라인 스크립트 발견 ({naver_id}): {txt[:500]}")
+                        break
+                else:
+                    # 스크립트 목록만 로그
+                    script_ids = [s.get("id") or s.get("src","")[:60] for s in soup.find_all("script")]
+                    logger.warning(f"Naver mobile 데이터 스크립트 없음 ({naver_id}): scripts={script_ids[:10]}")
                 return None
 
             next_data = json.loads(script.string)
@@ -174,7 +241,8 @@ class NaverLineupCollector:
                 or result.get("lineup")
             )
             if not lineup_data:
-                logger.warning(f"Naver lineup endpoint 응답 키 없음 ({naver_id}): result keys={list(result.keys())}")
+                raw = result.get("lineUpData")
+                logger.warning(f"Naver lineup endpoint lineUpData 비어있음 ({naver_id}): {repr(raw)[:300]}")
                 return None
             return self._parse_lineup_data(lineup_data)
         except Exception as e:
