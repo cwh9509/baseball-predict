@@ -45,11 +45,13 @@ def _get_team_coords(league: str, short_name: str) -> Optional[dict]:
 class ETLRunner:
 
     def __init__(self, league: Optional[str] = None, skip_weather: bool = False):
-        target_league = league or settings.league
-        if target_league == "KBO":
+        self.league = (league or settings.league).upper()
+        if self.league == "KBO":
             self.collector = KBOCollector()
-        elif target_league == "NPB":
+        elif self.league == "NPB":
             self.collector = NPBCollector()
+        elif self.league == "MLB":
+            self.collector = PybaseballCollector()
         else:
             self.collector = PybaseballCollector()
         self.weather = WeatherCollector()
@@ -159,7 +161,7 @@ class ETLRunner:
 
     async def _ensure_teams(self, db: AsyncSession) -> None:
         """팀이 DB에 없으면 삽입 (최초 실행 시)"""
-        result = await db.execute(select(Team).where(Team.league == settings.league).limit(1))
+        result = await db.execute(select(Team).where(Team.league == self.league).limit(1))
         if result.scalar_one_or_none():
             return  # 이미 팀 데이터 있음
 
