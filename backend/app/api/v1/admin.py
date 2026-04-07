@@ -174,8 +174,8 @@ async def trigger_retrain(league: str = Query(default=None)):
 
 
 @router.post("/collect")
-async def trigger_collect(target_date: str = Query(default=None), force: bool = Query(default=False)):
-    """경기 수집 + 예측 수동 트리거. force=true면 기존 예측 삭제 후 재생성"""
+async def trigger_collect(target_date: str = Query(default=None), force: bool = Query(default=False), league: str = Query(default=None)):
+    """경기 수집 + 예측 수동 트리거. force=true면 기존 예측 삭제 후 재생성. league=MLB로 특정 리그만 수집 가능"""
     from app.tasks.pre_game_predict import run
     import asyncio
     from datetime import datetime
