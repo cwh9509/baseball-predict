@@ -581,14 +581,15 @@ async def trigger_backtest(
     lg = league.upper()
 
     async def _run_backtest():
-        from app.ml.predictor import Predictor
-        from sqlalchemy import text
+        try:
+            from app.ml.predictor import Predictor
+            logger.info(f"[백테스트] 시작: {lg} {s}~{e}")
 
-        predictor = Predictor(league=lg)
-        predicted = 0
-        skipped = 0
+            predictor = Predictor(league=lg)
+            predicted = 0
+            skipped = 0
 
-        async with AsyncSessionLocal() as db:
+            async with AsyncSessionLocal() as db:
             # 완료된 경기 중 예측 없는 것 조회
             result = await db.execute(
                 select(Game).where(
@@ -628,7 +629,9 @@ async def trigger_backtest(
                     logger.warning(f"[백테스트] game_id={game.id} 예측 실패: {ex}")
 
             await db.commit()
-        logger.info(f"[백테스트] 완료: {predicted}경기 예측, {skipped}경기 스킵")
+            logger.info(f"[백테스트] 완료: {predicted}경기 예측, {skipped}경기 스킵")
+        except Exception as e:
+            logger.error(f"[백테스트] 치명적 오류: {e}", exc_info=True)
 
     _create_background_task(_run_backtest())
     return {"status": "started", "league": lg, "start": start, "end": end}
