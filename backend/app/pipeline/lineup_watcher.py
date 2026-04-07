@@ -372,5 +372,13 @@ async def _retrigger_prediction(db: AsyncSession, game_id: int) -> None:
         await db.commit()
         logger.info(f"game_id={game_id} 라인업 기반 예측 재실행 완료 (홈 승률: {result['home_win_prob']:.1%})")
 
+        # 캐시 무효화 (라인업 반영된 예측이 즉시 서빙되도록)
+        try:
+            from app.core.redis_client import cache_delete
+            cache_key = f"games:today:{game.league}:{game.game_date.isoformat()}"
+            await cache_delete(cache_key)
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"game_id={game_id} 예측 재실행 실패: {e}")
