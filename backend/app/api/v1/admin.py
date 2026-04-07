@@ -561,3 +561,25 @@ async def trigger_backfill(
 
     _create_background_task(backfill_async(s, e, league=target_league, skip_weather=skip_weather))
     return {"status": "started", "start": str(s), "end": str(e), "league": target_league}
+
+
+@router.post("/cache/flush")
+async def flush_cache(pattern: str = Query(default="games:*", description="삭제할 캐시 키 패턴")):
+    """Redis 캐시 삭제 (기본: games:* 전체)"""
+    from app.core.redis_client import _get_redis_client, _mem_cache
+    client = await _get_redis_client()
+    deleted = 0
+    if client:
+        keys = await client.keys(pattern)
+        if keys:
+            deleted = await client.delete(*keys)
+        await client.aclose()
+    else:
+        # 메모리 캐시 플러시
+        import fnmatch
+        to_del = [k for k in list(_mem_cache.keys()) if fnmatch.fnmatch(k, pattern)]
+        for k in to_del:
+            _mem_cache.pop(k, None)
+        deleted = len(to_del)
+    logger.info(f"캐시 삭제: {deleted}개 ({pattern})")
+    return {"deleted": deleted, "pattern": pattern}
