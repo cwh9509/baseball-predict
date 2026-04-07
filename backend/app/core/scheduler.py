@@ -103,7 +103,7 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    # MLB 라인업 감시 (1시간 간격, 미국 동부 오전 9시~오후 11시 = ET 기준)
+    # MLB 라인업 감시 (30분 간격, 미국 동부 오전 9시~오후 11시 = ET 기준)
     # scheduler_timezone이 America/New_York이면 MLB 경기 시간대와 맞음
     scheduler.add_job(
         _run_mlb_lineup_watch,
@@ -116,7 +116,17 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (9개 작업)")
+    # MLB 내일 경기 미리 수집 (ET 15:00 = KST 00:00)
+    # 한국 유저가 자정 이후 앱에서 다음날 MLB 경기/예측 바로 볼 수 있게
+    scheduler.add_job(
+        _run_mlb_next_day_collect,
+        trigger=CronTrigger(hour=15, minute=0, timezone=settings.scheduler_timezone),
+        id="mlb_next_day_collect",
+        name="MLB 익일 경기 수집 (KST 자정)",
+        replace_existing=True,
+    )
+
+    logger.info("스케줄러 작업 등록 완료 (10개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -186,6 +196,23 @@ async def _run_lineup_watch_pre_game() -> None:
         await run_pre_game()
     except Exception as e:
         logger.error(f"lineup_watch_pre_game 실패: {e}", exc_info=True)
+
+
+async def _run_mlb_next_day_collect() -> None:
+    """ET 15:00 (= KST 00:00) — 다음 ET 날짜 MLB 경기 미리 수집 + 예측"""
+    try:
+        from datetime import date, timedelta
+        from app.pipeline.etl_runner import ETLRunner
+        from app.tasks.pre_game_predict import run as predict_run
+
+        tomorrow_et = date.today() + timedelta(days=1)
+        logger.info(f"MLB 익일 경기 수집 시작: {tomorrow_et}")
+        runner = ETLRunner(league="MLB")
+        await runner.run_for_date(tomorrow_et)
+        await predict_run(target_date=tomorrow_et)
+        logger.info(f"MLB 익일 경기 수집 + 예측 완료: {tomorrow_et}")
+    except Exception as e:
+        logger.error(f"mlb_next_day_collect 실패: {e}", exc_info=True)
 
 
 async def _run_mlb_lineup_watch() -> None:
