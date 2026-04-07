@@ -246,8 +246,8 @@ async def run_for_date(target_date: date) -> None:
                 except Exception as e:
                     logger.debug(f"game_id={game.id} KBO lineup collector 폴백 실패: {e}")
 
-            # naver_preview는 예상값 — lineup_locked 설정 안 함
-            is_confirmed = lineup_source != "naver_preview"
+            # naver_preview는 양쪽 선발 모두 있을 때만 확정, 나머지 소스는 무조건 확정
+            is_confirmed = lineup_source not in ("naver_preview", None) or (bool(home_starter) and bool(away_starter))
             lineup = {
                 "home_starter": home_starter,
                 "away_starter": away_starter,

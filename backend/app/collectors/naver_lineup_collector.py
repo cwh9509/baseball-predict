@@ -88,14 +88,70 @@ class NaverLineupCollector:
         """
         naver_id = _naver_game_id(kbo_game_id)
 
-        # 1) lineup 엔드포인트 시도 (공식 발표 후 데이터 있음)
+        # 1) 모바일 페이지 스크래핑 (가장 신뢰도 높음)
+        result = await asyncio.to_thread(self._fetch_mobile_page_lineup, naver_id)
+        if result:
+            return result
+
+        # 2) lineup API 엔드포인트 시도
         result = await asyncio.to_thread(self._fetch_lineup_endpoint, naver_id)
         if result:
             return result
 
-        # 2) preview 엔드포인트 폴백 (선발투수만 가져옴)
+        # 3) preview 엔드포인트 폴백 (선발투수만)
         result = await asyncio.to_thread(self._fetch_preview_endpoint, naver_id)
         return result
+
+    def _fetch_mobile_page_lineup(self, naver_id: str) -> Optional[dict]:
+        """https://m.sports.naver.com/game/{naver_id}/lineup 스크래핑"""
+        try:
+            import json
+            from bs4 import BeautifulSoup
+
+            url = f"https://m.sports.naver.com/game/{naver_id}/lineup"
+            time.sleep(0.3)
+            resp = httpx.get(url, headers=NAVER_HEADERS, timeout=15, follow_redirects=True)
+            if resp.status_code != 200:
+                logger.warning(f"Naver mobile lineup HTTP {resp.status_code} ({naver_id})")
+                return None
+
+            soup = BeautifulSoup(resp.text, "lxml")
+            script = soup.find("script", id="__NEXT_DATA__")
+            if not script:
+                logger.warning(f"Naver mobile __NEXT_DATA__ 없음 ({naver_id})")
+                return None
+
+            next_data = json.loads(script.string)
+            # 데이터 경로 탐색
+            page_props = next_data.get("props", {}).get("pageProps", {})
+            lineup_data = (
+                page_props.get("lineUpData")
+                or page_props.get("lineupData")
+                or page_props.get("data", {}).get("lineUpData")
+                or page_props.get("data", {}).get("lineupData")
+            )
+
+            if not lineup_data:
+                # 구조 파악용 로그
+                logger.warning(
+                    f"Naver mobile lineup 데이터 없음 ({naver_id}): "
+                    f"pageProps keys={list(page_props.keys())}"
+                )
+                return None
+
+            result = self._parse_lineup_data(lineup_data)
+            if result:
+                result["source"] = "naver_mobile"
+                logger.info(
+                    f"Naver mobile 라인업 수집 성공 ({naver_id}): "
+                    f"home={result.get('home_starter')} away={result.get('away_starter')} "
+                    f"home_lineup={len(result.get('home_lineup') or [])}명 "
+                    f"away_lineup={len(result.get('away_lineup') or [])}명"
+                )
+            return result
+        except Exception as e:
+            logger.warning(f"Naver mobile 스크래핑 실패 ({naver_id}): {e}")
+            return None
 
     def _fetch_lineup_endpoint(self, naver_id: str) -> Optional[dict]:
         try:
