@@ -629,8 +629,8 @@ async def trigger_backtest(
 
                 await db.commit()
             logger.info(f"[백테스트] 완료: {predicted}경기 예측, {skipped}경기 스킵")
-        except Exception as e:
-            logger.error(f"[백테스트] 치명적 오류: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error(f"[백테스트] 치명적 오류: {exc}", exc_info=True)
 
     _create_background_task(_run_backtest())
     return {"status": "started", "league": lg, "start": start, "end": end}
