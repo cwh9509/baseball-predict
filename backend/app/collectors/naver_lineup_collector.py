@@ -107,14 +107,22 @@ class NaverLineupCollector:
                 follow_redirects=True,
             )
             if resp.status_code != 200:
+                logger.warning(f"Naver lineup endpoint HTTP {resp.status_code} ({naver_id})")
                 return None
             data = resp.json()
-            lineup_data = data.get("result", {}).get("lineUpData")
+            result = data.get("result", {})
+            # 응답 키 확인용 로그
+            lineup_data = (
+                result.get("lineUpData")
+                or result.get("lineupData")
+                or result.get("lineup")
+            )
             if not lineup_data:
+                logger.warning(f"Naver lineup endpoint 응답 키 없음 ({naver_id}): result keys={list(result.keys())}")
                 return None
             return self._parse_lineup_data(lineup_data)
         except Exception as e:
-            logger.debug(f"Naver lineup endpoint 실패 ({naver_id}): {e}")
+            logger.warning(f"Naver lineup endpoint 실패 ({naver_id}): {e}")
             return None
 
     def _fetch_preview_endpoint(self, naver_id: str) -> Optional[dict]:

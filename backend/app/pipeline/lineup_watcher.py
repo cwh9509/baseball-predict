@@ -138,18 +138,24 @@ async def run_pre_game() -> None:
 
         logger.info(f"{len(target_games)}경기 집중 감시 중...")
 
+        from app.collectors.naver_lineup_collector import NaverLineupCollector
         from app.collectors.lineup_collector import KBOLineupCollector
-        collector = KBOLineupCollector()
+        naver_collector = NaverLineupCollector()
+        kbo_collector = KBOLineupCollector()
 
         for game in target_games:
             if not game.external_game_id:
                 continue
             try:
-                lineup = await collector.fetch_lineup(game.external_game_id)
+                lineup = await naver_collector.fetch_lineup(game.external_game_id)
+                if not lineup:
+                    lineup = await kbo_collector.fetch_lineup(game.external_game_id)
                 if lineup:
                     changed = await _update_game_lineup(db, game, lineup)
                     if changed:
                         await _retrigger_prediction(db, game.id)
+                    else:
+                        logger.info(f"game_id={game.id} 라인업 변경 없음")
                 else:
                     logger.info(f"game_id={game.id} 아직 라인업 미발표")
             except Exception as e:
