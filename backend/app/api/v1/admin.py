@@ -166,7 +166,7 @@ async def trigger_retrain(league: str = Query(default=None)):
         await trainer.retrain()
         logger.info(f"{lg} 모델 재학습 완료")
 
-_create_background_task(_run(target))
+    _create_background_task(_run(target))
     logger.info(f"수동 재학습 트리거: {target}")
     return {"status": "started", "league": target}
 
@@ -194,7 +194,7 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
         logger.info(f"기존 예측 삭제 완료: {d}")
 
     logger.info(f"수동 트리거: 경기 수집 + 예측 시작 ({d})")
-_create_background_task(run(parsed_date, force=force))
+    _create_background_task(run(parsed_date, force=force))
     return {"status": "started", "date": str(d), "force": force}
 
 
@@ -251,7 +251,7 @@ async def trigger_lineup(target_date: str = Query(default=None), force: bool = Q
         await run_for_date(d)
         logger.info(f"라인업 수집 완료: {d}")
 
-_create_background_task(_run())
+    _create_background_task(_run())
     return {"status": "started", "date": str(d), "force": force}
 
 
@@ -340,7 +340,7 @@ async def trigger_collect_stats(season: int = Query(default=None)):
         await run_splits(season=s)
         logger.info(f"KBO 스탯 수집 + 스플릿 계산 완료 (season={s})")
 
-_create_background_task(_run())
+    _create_background_task(_run())
     return {"status": "started", "season": s}
 
 
@@ -358,7 +358,7 @@ async def trigger_compute_splits(season: int = Query(default=None)):
         await run(season=s)
         logger.info(f"스플릿 OPS 계산 완료 (season={s})")
 
-_create_background_task(_run())
+    _create_background_task(_run())
     return {"status": "started", "season": s}
 
 
@@ -393,7 +393,7 @@ async def trigger_collect_mlb_stats(
                 logger.info(f"MLB 스탯 수집 완료: season={s}, {summary}")
         return results
 
-_create_background_task(_run())
+    _create_background_task(_run())
     return {"status": "started", "seasons": seasons_to_collect}
 
 
@@ -521,7 +521,7 @@ async def trigger_collect_results(target_date: str = Query(default=None)):
         await runner.run_results(d)
         logger.info(f"경기 결과 수집 완료: {d}")
 
-_create_background_task(_run())
+    _create_background_task(_run())
     return {"status": "started", "date": str(d)}
 
 
@@ -543,5 +543,5 @@ async def trigger_backfill(
 
     logger.info(f"백필 트리거: {s} ~ {e}, league={target_league or '설정값'}")
 
-_create_background_task(backfill_async(s, e, league=target_league, skip_weather=skip_weather))
+    _create_background_task(backfill_async(s, e, league=target_league, skip_weather=skip_weather))
     return {"status": "started", "start": str(s), "end": str(e), "league": target_league}
