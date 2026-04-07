@@ -214,6 +214,8 @@ class ETLRunner:
                     "home_score": stmt.excluded.home_score,
                     "away_score": stmt.excluded.away_score,
                     "winner_team_id": stmt.excluded.winner_team_id,
+                    # NULL이면 기존 값 유지
+                    "game_time": func.coalesce(stmt.excluded.game_time, Game.game_time),
                     # NULL이면 기존 값 유지 (라인업 감시기가 넣은 선발 덮어쓰기 방지)
                     "home_starter_name": func.coalesce(stmt.excluded.home_starter_name, Game.home_starter_name),
                     "away_starter_name": func.coalesce(stmt.excluded.away_starter_name, Game.away_starter_name),

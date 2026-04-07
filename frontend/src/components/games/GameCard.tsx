@@ -69,7 +69,9 @@ export default function GameCard({ game, currentDate, league }: Props) {
         {/* 하단 정보 */}
         <div className="flex items-center justify-between mt-3 text-xs">
           <span className="text-gray-400">
-            {game.game_time ? game.game_time.slice(0, 5) : "시간 미정"}
+            {game.game_time
+              ? `${game.game_time.slice(0, 5)} ${league === "MLB" ? "ET" : "KST"}`
+              : "시간 미정"}
             {game.venue && ` · ${game.venue}`}
           </span>
           <div className="flex items-center gap-1">
