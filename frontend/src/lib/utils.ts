@@ -81,27 +81,13 @@ export const MLB_TEAM_ID: Record<string, number> = {
   STL: 138, TB: 139, TEX: 140, TOR: 141, WSH: 120,
 }
 
-// KBO 팀 로고 URL (KBO 공식 CDN)
-export const KBO_TEAM_LOGO: Record<string, string> = {
-  KIA: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kia.png",
-  삼성: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_samsung.png",
-  LG: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_lg.png",
-  두산: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_doosan.png",
-  KT: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kt.png",
-  SSG: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_ssg.png",
-  롯데: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_lotte.png",
-  한화: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_hanwha.png",
-  NC: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_nc.png",
-  키움: "https://www.koreabaseball.com/files/AboutUs/Sponsor/ci_kiwoom.png",
-}
-
 export function getTeamLogoUrl(shortName: string, league?: string): string | null {
   if (league === "MLB") {
     const id = MLB_TEAM_ID[shortName]
     return id ? `https://www.mlbstatic.com/team-logos/${id}.svg` : null
   }
-  // KBO: shortName이 한글(두산, LG 등)이거나 영문(KIA, SSG 등)일 수 있음
-  return KBO_TEAM_LOGO[shortName] ?? null
+  // KBO: 신뢰할 수 있는 CDN이 없어 텍스트 배지 폴백 사용
+  return null
 }
 
 export const IMPACT_ICONS: Record<string, string> = {

@@ -39,15 +39,13 @@ export default function GameCard({ game, currentDate, league }: Props) {
           <div className="flex flex-col items-center flex-1 gap-1">
             <div className="text-xs text-red-400 font-medium">원정</div>
             <TeamLogo shortName={game.away_team.short_name} league={league} size={36} />
-            <div className="font-bold text-lg">{awayShort}</div>
-            <div className="text-xs text-gray-500 truncate max-w-24">{awayFull}</div>
+            <div className="font-semibold text-sm text-center leading-tight">{awayFull}</div>
           </div>
-          <div className="px-3 text-gray-400 font-light text-sm">vs</div>
+          <div className="px-3 text-gray-400 font-light text-sm shrink-0">vs</div>
           <div className="flex flex-col items-center flex-1 gap-1">
             <div className="text-xs text-blue-500 font-medium">홈</div>
             <TeamLogo shortName={game.home_team.short_name} league={league} size={36} />
-            <div className="font-bold text-lg">{homeShort}</div>
-            <div className="text-xs text-gray-500 truncate max-w-24">{homeFull}</div>
+            <div className="font-semibold text-sm text-center leading-tight">{homeFull}</div>
           </div>
         </div>
 
