@@ -24,9 +24,81 @@ KST = timezone(timedelta(hours=9))
 
 
 async def run() -> None:
-    """당일 미확정 경기 라인업 체크 및 업데이트"""
+    """당일 미확정 KBO 경기 라인업 체크 및 업데이트"""
     today = datetime.now(KST).date()
     await run_for_date(today)
+
+
+async def run_mlb() -> None:
+    """당일 미확정 MLB 경기 선발투수 체크 및 업데이트"""
+    today = datetime.now(KST).date()
+    await run_for_date_mlb(today)
+
+
+async def run_for_date_mlb(target_date: date) -> None:
+    """MLB probable pitchers + boxscore 라인업 수집 및 예측 재실행"""
+    logger.info(f"MLB 라인업 감시 시작 ({target_date})")
+
+    from app.collectors.mlb_lineup_collector import fetch_mlb_schedule_starters, fetch_mlb_lineup
+
+    # 먼저 일정에서 probable pitchers 가져오기
+    starters_map = await fetch_mlb_schedule_starters(target_date)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Game).where(
+                Game.game_date == target_date,
+                Game.league == "MLB",
+                Game.status == "scheduled",
+                (Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None) |
+                 Game.home_starter_name.is_(None) | Game.away_starter_name.is_(None)),
+            )
+        )
+        games = result.scalars().all()
+
+        if not games:
+            logger.info(f"MLB 라인업 확인 대상 경기 없음 ({target_date})")
+            return
+
+        logger.info(f"MLB {len(games)}경기 라인업 확인 중... ({target_date})")
+
+        updated_count = 0
+        for game in games:
+            game_pk = game.external_game_id
+            if not game_pk:
+                continue
+
+            try:
+                # 일정 API에서 probable pitchers
+                home_starter, away_starter = starters_map.get(game_pk, (None, None))
+
+                # boxscore에서 실제 라인업 시도
+                lineup_data = await fetch_mlb_lineup(game_pk)
+
+                if lineup_data:
+                    # probable pitchers와 boxscore 선발 병합
+                    lineup_data["home_starter"] = lineup_data.get("home_starter") or home_starter
+                    lineup_data["away_starter"] = lineup_data.get("away_starter") or away_starter
+                elif home_starter or away_starter:
+                    lineup_data = {
+                        "home_starter": home_starter,
+                        "away_starter": away_starter,
+                        "home_lineup": [],
+                        "away_lineup": [],
+                        "confirmed": bool(home_starter and away_starter),
+                        "source": "mlb_schedule",
+                    }
+
+                if lineup_data:
+                    changed = await _update_game_lineup(db, game, lineup_data)
+                    if changed:
+                        updated_count += 1
+                        await _retrigger_prediction(db, game.id)
+
+            except Exception as e:
+                logger.warning(f"MLB game_id={game.id} 라인업 수집 실패: {e}")
+
+    logger.info(f"MLB 라인업 감시 완료 — {updated_count}경기 업데이트 ({target_date})")
 
 
 async def run_pre_game() -> None:

@@ -103,7 +103,20 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (8개 작업)")
+    # MLB 라인업 감시 (1시간 간격, 미국 동부 오전 9시~오후 11시 = ET 기준)
+    # scheduler_timezone이 America/New_York이면 MLB 경기 시간대와 맞음
+    scheduler.add_job(
+        _run_mlb_lineup_watch,
+        trigger=CronTrigger(
+            hour="9-23", minute="0,30",
+            timezone=settings.scheduler_timezone
+        ),
+        id="mlb_lineup_watch",
+        name="MLB 라인업 감시",
+        replace_existing=True,
+    )
+
+    logger.info("스케줄러 작업 등록 완료 (9개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -173,3 +186,11 @@ async def _run_lineup_watch_pre_game() -> None:
         await run_pre_game()
     except Exception as e:
         logger.error(f"lineup_watch_pre_game 실패: {e}", exc_info=True)
+
+
+async def _run_mlb_lineup_watch() -> None:
+    try:
+        from app.pipeline.lineup_watcher import run_mlb
+        await run_mlb()
+    except Exception as e:
+        logger.error(f"mlb_lineup_watch 실패: {e}", exc_info=True)

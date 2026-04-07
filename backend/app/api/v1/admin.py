@@ -219,6 +219,22 @@ async def delete_predictions(target_date: str = Query(...)):
     return {"status": "deleted", "date": str(d), "count": deleted}
 
 
+@router.post("/lineup/mlb")
+async def trigger_mlb_lineup(target_date: str = Query(default=None)):
+    """MLB 선발투수/라인업 수동 수집 트리거"""
+    from datetime import date as date_cls, datetime
+    d = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else date_cls.today()
+    logger.info(f"수동 트리거: MLB 라인업 수집 시작 ({d})")
+
+    async def _run():
+        from app.pipeline.lineup_watcher import run_for_date_mlb
+        await run_for_date_mlb(d)
+        logger.info(f"MLB 라인업 수집 완료: {d}")
+
+    _create_background_task(_run())
+    return {"status": "started", "date": str(d), "league": "MLB"}
+
+
 @router.post("/lineup")
 async def trigger_lineup(target_date: str = Query(default=None), force: bool = Query(default=False)):
     """라인업 수동 수집 트리거. force=true면 lineup_locked 초기화 후 재수집"""
