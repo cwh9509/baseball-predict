@@ -52,7 +52,7 @@ def create_app() -> FastAPI:
         """시작 시 누락된 예측/결과 자동 보완"""
         import asyncio
         from datetime import date, timedelta
-        from sqlalchemy import select
+        from sqlalchemy import select, func  # noqa
         from app.core.database import AsyncSessionLocal
         from app.models import Game, Prediction
 
@@ -61,24 +61,39 @@ def create_app() -> FastAPI:
         today = date.today()
         yesterday = today - timedelta(days=1)
 
-        async with AsyncSessionLocal() as db:
-            # 어제 결과 수집 여부 확인
-            yesterday_final = await db.execute(
-                select(Game).where(Game.game_date == yesterday, Game.status == "final", Game.league == settings.league)
-            )
-            if not yesterday_final.scalars().first():
-                logger.info(f"시작 시 어제({yesterday}) 결과 수집")
-                from app.pipeline.etl_runner import ETLRunner
-                await ETLRunner().run_results(yesterday)
+        from app.pipeline.etl_runner import ETLRunner
+        from app.tasks.pre_game_predict import run as run_predict
 
-            # 오늘 예측 여부 확인
-            today_pred = await db.execute(
-                select(Prediction).join(Game).where(Game.game_date == today, Game.league == settings.league)
-            )
-            if not today_pred.scalars().first():
+        # 어제 결과: KBO/MLB 각각 확인 후 수집
+        for league in ["KBO", "MLB"]:
+            try:
+                async with AsyncSessionLocal() as db:
+                    yesterday_count = await db.execute(
+                        select(func.count(Game.id)).where(
+                            Game.game_date == yesterday,
+                            Game.status == "final",
+                            Game.league == league,
+                        )
+                    )
+                    if (yesterday_count.scalar() or 0) == 0:
+                        logger.info(f"시작 시 어제({yesterday}) {league} 결과 수집")
+                        await ETLRunner(league=league).run_results(yesterday)
+            except Exception as e:
+                logger.warning(f"시작 시 {league} 결과 수집 실패: {e}")
+
+        # 오늘 예측: KBO+MLB 통합으로 한번에
+        try:
+            async with AsyncSessionLocal() as db:
+                today_count = await db.execute(
+                    select(func.count(Prediction.id))
+                    .join(Game)
+                    .where(Game.game_date == today)
+                )
+            if (today_count.scalar() or 0) == 0:
                 logger.info(f"시작 시 오늘({today}) 예측 실행")
-                from app.tasks.pre_game_predict import run
-                await run()
+                await run_predict()
+        except Exception as e:
+            logger.warning(f"시작 시 예측 실행 실패: {e}")
 
         # 모델 파일 없으면 자동 재학습 (Railway 재배포 후 ephemeral 파일 소실 대응)
         from app.ml.model_registry import load_latest_model

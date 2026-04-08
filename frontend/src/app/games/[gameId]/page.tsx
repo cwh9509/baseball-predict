@@ -156,6 +156,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           prediction={prediction}
           homeTeamName={homeFull}
           awayTeamName={awayFull}
+          league={league}
         />
       </div>
     </div>

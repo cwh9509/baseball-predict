@@ -23,7 +23,7 @@ from app.features.elo_features import get_elo_features
 from app.features.injury_features import get_team_il_features
 from app.features.pitcher_features import (
     get_pitcher_features, get_team_rotation_era,
-    get_kbo_starter_era, get_kbo_starter_stats,
+    get_kbo_starter_era, get_kbo_starter_stats, get_kbo_bullpen_stats,
     get_mlb_starter_stats, get_mlb_bullpen_stats,
     get_npb_starter_stats, get_npb_bullpen_stats,
 )
@@ -340,11 +340,17 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
                     away_sp_throws = await _get_kbo_pitcher_handedness(
                         db, game.away_starter_name, away_team_obj.short_name, season
                     )
-            # 불펜 ERA
+            # 불펜 ERA + WHIP
             if home_team_obj:
-                home_bullpen_era = await _get_kbo_bullpen_era(db, home_team_obj.short_name, season)
+                _home_kbo_bp = await get_kbo_bullpen_stats(home_team_obj.short_name, season, db)
+                if _home_kbo_bp:
+                    home_bullpen_era = _home_kbo_bp["era"]
+                    home_bullpen_whip = _home_kbo_bp.get("whip")
             if away_team_obj:
-                away_bullpen_era = await _get_kbo_bullpen_era(db, away_team_obj.short_name, season)
+                _away_kbo_bp = await get_kbo_bullpen_stats(away_team_obj.short_name, season, db)
+                if _away_kbo_bp:
+                    away_bullpen_era = _away_kbo_bp["era"]
+                    away_bullpen_whip = _away_kbo_bp.get("whip")
 
     # KBO 선발투수 최근 14일 ERA/WHIP
     home_sp_recent_era = None
@@ -526,14 +532,41 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
             snapshot["home_sp_era_season"] = _home_kbo["era"]
             snapshot["home_sp_whip_season"] = _home_kbo["whip"]
             snapshot["home_sp_k9_season"] = _home_kbo["k9"]
-            snapshot["home_sp_era_L3"] = _home_kbo["era"]
+            snapshot["home_sp_era_L3"] = home_sp_recent_era or _home_kbo["era"]
             snapshot["home_sp_is_imputed"] = False
+            # 에이스: 개인 ERA가 팀 로테이션 ERA보다 0.5 이상 낮으면
+            if home_rotation_era:
+                snapshot["home_sp_is_ace"] = int(_home_kbo["era"] < home_rotation_era - 0.5)
+            # 피로: 최근 ERA가 시즌 ERA보다 1.0 이상 높으면
+            if home_sp_recent_era is not None:
+                snapshot["home_sp_is_fatigued"] = int(home_sp_recent_era > _home_kbo["era"] + 1.0)
         if locals().get("_away_kbo"):
             snapshot["away_sp_era_season"] = _away_kbo["era"]
             snapshot["away_sp_whip_season"] = _away_kbo["whip"]
             snapshot["away_sp_k9_season"] = _away_kbo["k9"]
-            snapshot["away_sp_era_L3"] = _away_kbo["era"]
+            snapshot["away_sp_era_L3"] = away_sp_recent_era or _away_kbo["era"]
             snapshot["away_sp_is_imputed"] = False
+            if away_rotation_era:
+                snapshot["away_sp_is_ace"] = int(_away_kbo["era"] < away_rotation_era - 0.5)
+            if away_sp_recent_era is not None:
+                snapshot["away_sp_is_fatigued"] = int(away_sp_recent_era > _away_kbo["era"] + 1.0)
+
+    # MLB: 에이스/피로 계산 (개인 ERA 기준)
+    if league == "MLB":
+        # 팀 평균 ERA를 기준으로 에이스 판정
+        _home_era = snapshot.get("home_sp_era_season")
+        _away_era = snapshot.get("away_sp_era_season")
+        _home_recent = snapshot.get("home_sp_recent_era")
+        _away_recent = snapshot.get("away_sp_recent_era")
+        MLB_AVG_ERA = 4.30
+        if _home_era is not None:
+            snapshot["home_sp_is_ace"] = int(float(_home_era) < MLB_AVG_ERA - 0.7)
+            if _home_recent is not None:
+                snapshot["home_sp_is_fatigued"] = int(float(_home_recent) > float(_home_era) + 1.0)
+        if _away_era is not None:
+            snapshot["away_sp_is_ace"] = int(float(_away_era) < MLB_AVG_ERA - 0.7)
+            if _away_recent is not None:
+                snapshot["away_sp_is_fatigued"] = int(float(_away_recent) > float(_away_era) + 1.0)
 
     # 누수 방지 검사: 점수/승패 컬럼 포함 시 오류
     _assert_no_leakage(snapshot)

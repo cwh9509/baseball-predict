@@ -88,19 +88,114 @@ class NaverLineupCollector:
         """
         naver_id = _naver_game_id(kbo_game_id)
 
-        # 1) record 엔드포인트 (타순 + 선발투수 전부 있음)
-        result = await asyncio.to_thread(self._fetch_record_endpoint, naver_id)
-        if result:
-            return result
-
-        # 2) lineup API 엔드포인트
+        # 1) lineup API — 경기 시작 1시간 전부터 공식 타순 발표
         result = await asyncio.to_thread(self._fetch_lineup_endpoint, naver_id)
         if result:
             return result
 
-        # 3) preview 폴백 (선발투수만)
+        # 2) preview 폴백 — 선발투수만 (타순 발표 전)
         result = await asyncio.to_thread(self._fetch_preview_endpoint, naver_id)
         return result
+
+    def _fetch_relay_endpoint(self, naver_id: str) -> Optional[dict]:
+        """relay 엔드포인트 — 경기 중/후 전체 타순
+
+        KBO: textRelayData.homeLineup.batter[]  (batOrder, name, posName)
+        MLB: textRelayData.baseInfo.batterLineup.home[]  (name, position, pCode)
+        """
+        try:
+            time.sleep(0.3)
+            resp = httpx.get(
+                f"{NAVER_API_BASE}/{naver_id}/relay",
+                headers=NAVER_HEADERS,
+                timeout=10,
+                follow_redirects=True,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            relay = data.get("result", {}).get("textRelayData")
+            if not relay:
+                return None
+
+            home_lineup: list = []
+            away_lineup: list = []
+            home_starter: Optional[str] = None
+            away_starter: Optional[str] = None
+
+            # --- KBO 형식: homeLineup.batter[] ---
+            home_lu = relay.get("homeLineup") or {}
+            away_lu = relay.get("awayLineup") or {}
+            kbo_home_batters = home_lu.get("batter") or []
+            kbo_away_batters = away_lu.get("batter") or []
+
+            if kbo_home_batters or kbo_away_batters:
+                # 타순 순서대로 정렬 (batOrder 기준, 중복 batOrder는 대주자/대타이므로 첫번째만)
+                seen_orders: set = set()
+                for p in sorted(kbo_home_batters, key=lambda x: (x.get("batOrder", 99), x.get("seqno", 99))):
+                    order = p.get("batOrder")
+                    if order and order not in seen_orders and p.get("name"):
+                        seen_orders.add(order)
+                        home_lineup.append({"order": order, "name": p["name"], "position": p.get("posName", "")})
+
+                seen_orders = set()
+                for p in sorted(kbo_away_batters, key=lambda x: (x.get("batOrder", 99), x.get("seqno", 99))):
+                    order = p.get("batOrder")
+                    if order and order not in seen_orders and p.get("name"):
+                        seen_orders.add(order)
+                        away_lineup.append({"order": order, "name": p["name"], "position": p.get("posName", "")})
+
+                # 선발투수: pitcher[0] (seqno=1)
+                home_pitchers = sorted(home_lu.get("pitcher") or [], key=lambda x: x.get("seqno", 99))
+                away_pitchers = sorted(away_lu.get("pitcher") or [], key=lambda x: x.get("seqno", 99))
+                if home_pitchers:
+                    home_starter = home_pitchers[0].get("name")
+                if away_pitchers:
+                    away_starter = away_pitchers[0].get("name")
+
+            else:
+                # --- MLB 형식: baseInfo.batterLineup.home/away[] ---
+                base_info = relay.get("baseInfo") or {}
+                batter_lineup = base_info.get("batterLineup") or {}
+                mlb_home = batter_lineup.get("home") or []
+                mlb_away = batter_lineup.get("away") or []
+
+                if not mlb_home and not mlb_away:
+                    return None
+
+                home_lineup = [
+                    {"order": i + 1, "name": p.get("name", ""), "position": p.get("position", "")}
+                    for i, p in enumerate(mlb_home) if p.get("name")
+                ]
+                away_lineup = [
+                    {"order": i + 1, "name": p.get("name", ""), "position": p.get("position", "")}
+                    for i, p in enumerate(mlb_away) if p.get("name")
+                ]
+
+                # MLB 선발투수는 preview에서 조회
+                preview_result = self._fetch_preview_endpoint(naver_id)
+                if preview_result:
+                    home_starter = preview_result.get("home_starter")
+                    away_starter = preview_result.get("away_starter")
+
+            if not home_lineup and not away_lineup:
+                return None
+
+            logger.info(
+                f"Naver relay 라인업 수집 ({naver_id}): "
+                f"home={home_starter} away={away_starter} "
+                f"home_lineup={len(home_lineup)}명 away_lineup={len(away_lineup)}명"
+            )
+            return {
+                "home_starter": home_starter,
+                "away_starter": away_starter,
+                "home_lineup": home_lineup,
+                "away_lineup": away_lineup,
+                "source": "naver_relay",
+            }
+        except Exception as e:
+            logger.debug(f"Naver relay endpoint 실패 ({naver_id}): {e}")
+            return None
 
     def _fetch_record_endpoint(self, naver_id: str) -> Optional[dict]:
         """record 엔드포인트에서 battersBoxscore + pitchersBoxscore 파싱"""
@@ -241,9 +336,12 @@ class NaverLineupCollector:
                 or result.get("lineup")
             )
             if not lineup_data:
-                raw = result.get("lineUpData")
-                logger.warning(f"Naver lineup endpoint lineUpData 비어있음 ({naver_id}): {repr(raw)[:300]}")
                 return None
+            # 최초 발견 시 구조 로그 (키 이름 파악용)
+            logger.info(
+                f"Naver lineup endpoint 데이터 수신 ({naver_id}): "
+                f"keys={list(lineup_data.keys()) if isinstance(lineup_data, dict) else type(lineup_data)}"
+            )
             return self._parse_lineup_data(lineup_data)
         except Exception as e:
             logger.warning(f"Naver lineup endpoint 실패 ({naver_id}): {e}")
@@ -310,27 +408,28 @@ class NaverLineupCollector:
         }
 
     def _parse_preview_data(self, preview: dict) -> Optional[dict]:
-        """preview 엔드포인트 응답 파싱 (선발투수 위주)"""
-        # Naver API 라벨은 실제 홈/원정과 일치
-        # homeStarter → 실제 홈팀 선발, awayStarter → 실제 원정팀 선발
+        """preview 엔드포인트 응답 파싱
+        - homeStarter / awayStarter: 선발투수만 추출
+        - batterCandidate: 포지션 후보 목록 (타순 아님) → 무시
+        - 실제 타순은 /lineup 엔드포인트에서만 확인 가능
+        """
         home_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
         away_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
-
         home_starter = home_starter_info.get("name")
         away_starter = away_starter_info.get("name")
-
-        # preview의 타순은 3명만 있어서 실제 타순으로 사용하지 않음
-        home_lineup = []
-        away_lineup = []
 
         if not home_starter and not away_starter:
             return None
 
+        logger.info(
+            f"Naver preview 파싱: home={home_starter} away={away_starter} (타순은 lineup 엔드포인트 대기)"
+        )
+
         return {
             "home_starter": home_starter,
             "away_starter": away_starter,
-            "home_lineup": home_lineup,
-            "away_lineup": away_lineup,
+            "home_lineup": [],
+            "away_lineup": [],
             "source": "naver_preview",
         }
 

@@ -5,6 +5,7 @@ interface Props {
   prediction: PredictionDetail
   homeTeamName: string
   awayTeamName: string
+  league?: string
 }
 
 function StreakBadge({ streak }: { streak: number }) {
@@ -89,14 +90,14 @@ function CompareRow({ label, home, away, fmt: fmtFn = fmt, digits, lowerBetter =
   )
 }
 
-export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }: Props) {
+export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, league }: Props) {
   const s = prediction.feature_snapshot
   const homeRecent = prediction.home_recent_results
   const awayRecent = prediction.away_recent_results
   const homeImputed = Boolean(s.home_sp_is_imputed)
   const awayImputed = Boolean(s.away_sp_is_imputed)
   const isDome = Boolean(s.is_dome_game)
-  const isMLB = s.home_sp_fip !== undefined || s.home_bullpen_era !== undefined
+  const isMLB = league === "MLB"
 
   const homeIlCount = Number(s.home_il_count ?? 0)
   const awayIlCount = Number(s.away_il_count ?? 0)
@@ -151,8 +152,8 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
         </div>
       </div>
 
-      {/* ── 팀 불펜 (MLB) ─────────────────────────────── */}
-      {isMLB && (s.home_bullpen_era != null || s.away_bullpen_era != null) && (
+      {/* ── 팀 불펜 ─────────────────────────────────── */}
+      {(s.home_bullpen_era != null || s.away_bullpen_era != null) && (
         <div className="bg-white rounded-xl border shadow-sm p-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">🔥 팀 불펜</h3>
           <div className="grid grid-cols-3 gap-2 mb-1">
@@ -261,7 +262,7 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName }
               {s.h2h_win_pct_home !== undefined ? pct(s.h2h_win_pct_home) : "-"}
             </div>
             <div className="text-xs text-gray-400 mt-1">{homeTeamName} 홈 승률</div>
-            <div className="text-xs text-gray-400">(최근 2년)</div>
+            <div className="text-xs text-gray-400">(최근 1년)</div>
             {s.h2h_run_diff_home !== undefined && (
               <div className="mt-1">
                 <span className={`text-xs font-medium ${Number(s.h2h_run_diff_home) > 0 ? "text-blue-600" : "text-red-600"}`}>

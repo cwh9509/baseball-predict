@@ -647,6 +647,87 @@ async def trigger_backtest(
     return {"status": "started", "league": lg, "start": start, "end": end}
 
 
+@router.post("/fix-mlb-starters")
+async def fix_mlb_starters(
+    from_date: str = Query(default=None, description="시작일 YYYY-MM-DD (기본: 오늘-30일)"),
+    to_date: str = Query(default=None, description="종료일 YYYY-MM-DD (기본: 오늘+7일)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """MLB 경기의 누락된 선발투수 + 타순을 statsapi에서 재수집"""
+    from datetime import date, timedelta
+    from sqlalchemy import select, update
+    from app.models import Game
+    from app.collectors.mlb_lineup_collector import fetch_mlb_lineup
+
+    today = date.today()
+    start = date.fromisoformat(from_date) if from_date else today - timedelta(days=30)
+    end = date.fromisoformat(to_date) if to_date else today + timedelta(days=7)
+
+    import httpx
+    updated = 0
+    skipped = 0
+
+    # 날짜별로 statsapi probable pitchers 조회
+    cur = start
+    while cur <= end:
+        try:
+            resp = httpx.get(
+                "https://statsapi.mlb.com/api/v1/schedule",
+                params={"sportId": 1, "date": cur.isoformat(), "hydrate": "probablePitcher"},
+                timeout=10,
+            )
+            dates = resp.json().get("dates", [])
+            for d in dates:
+                for g in d.get("games", []):
+                    gid = str(g.get("gamePk", ""))
+                    home_p = g["teams"]["home"].get("probablePitcher", {}).get("fullName") or None
+                    away_p = g["teams"]["away"].get("probablePitcher", {}).get("fullName") or None
+                    if not gid:
+                        skipped += 1
+                        continue
+
+                    result = await db.execute(
+                        select(Game).where(Game.external_game_id == gid, Game.league == "MLB")
+                    )
+                    game = result.scalar_one_or_none()
+                    if not game:
+                        skipped += 1
+                        continue
+
+                    vals = {}
+                    if home_p and game.home_starter_name != home_p:
+                        vals["home_starter_name"] = home_p
+                    if away_p and game.away_starter_name != away_p:
+                        vals["away_starter_name"] = away_p
+
+                    # 타순 보완 — live feed에서 수집
+                    if not game.home_lineup_json or not game.away_lineup_json:
+                        lineup = await fetch_mlb_lineup(gid)
+                        if lineup:
+                            if lineup.get("home_lineup") and not game.home_lineup_json:
+                                vals["home_lineup_json"] = lineup["home_lineup"]
+                            if lineup.get("away_lineup") and not game.away_lineup_json:
+                                vals["away_lineup_json"] = lineup["away_lineup"]
+                            # 선발투수도 live feed에서 보완
+                            if lineup.get("home_starter") and not vals.get("home_starter_name") and not game.home_starter_name:
+                                vals["home_starter_name"] = lineup["home_starter"]
+                            if lineup.get("away_starter") and not vals.get("away_starter_name") and not game.away_starter_name:
+                                vals["away_starter_name"] = lineup["away_starter"]
+
+                    if vals:
+                        await db.execute(update(Game).where(Game.id == game.id).values(**vals))
+                        updated += 1
+                    else:
+                        skipped += 1
+
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"MLB 선발/타순 보완 실패 ({cur}): {e}")
+        cur += timedelta(days=1)
+
+    return {"updated": updated, "skipped": skipped, "from": str(start), "to": str(end)}
+
+
 @router.post("/cache/flush")
 async def flush_cache(pattern: str = Query(default="games:*", description="삭제할 캐시 키 패턴")):
     """Redis 캐시 삭제 (기본: games:* 전체)"""

@@ -189,6 +189,14 @@ class PybaseballCollector(BaseCollector):
             away_short = _resolve_mlb_short(row.get("away_name", ""))
             if not home_short or not away_short:
                 continue
+            home_pitcher_name = row.get("home_probable_pitcher") or None
+            away_pitcher_name = row.get("away_probable_pitcher") or None
+            # 빈 문자열 처리
+            if isinstance(home_pitcher_name, str) and not home_pitcher_name.strip():
+                home_pitcher_name = None
+            if isinstance(away_pitcher_name, str) and not away_pitcher_name.strip():
+                away_pitcher_name = None
+
             games.append(
                 GameRaw(
                     external_game_id=str(row.get("game_id", "")),
@@ -202,6 +210,8 @@ class PybaseballCollector(BaseCollector):
                     away_score=row.get("away_score") if row.get("status") == "Final" else None,
                     home_starter_external_id=str(row.get("home_probable_pitcher_id", "")) or None,
                     away_starter_external_id=str(row.get("away_probable_pitcher_id", "")) or None,
+                    home_starter_name=home_pitcher_name,
+                    away_starter_name=away_pitcher_name,
                     game_time_local=row.get("game_datetime", "")[:16],
                 )
             )

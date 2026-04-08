@@ -30,75 +30,70 @@ async def fetch_mlb_lineup(game_pk: str) -> Optional[dict]:
 
 
 def _fetch_mlb_lineup_sync(game_pk: str) -> Optional[dict]:
+    """
+    MLB 경기 타순 수집 — live feed 기준 (경기 전 라인업 제출 후 + 경기 중/후 모두 작동)
+    타순 없으면 probable pitchers만 반환
+    """
     try:
-        import statsapi
+        import httpx
 
-        # boxscore 조회 (경기 시작 후 실제 라인업)
-        box = statsapi.get("game_boxscore", {"gamePk": game_pk})
-        teams = box.get("teams", {})
-        home = teams.get("home", {})
-        away = teams.get("away", {})
-
-        home_players = home.get("players", {})
-        away_players = away.get("players", {})
-        home_batting_order = home.get("battingOrder", [])
-        away_batting_order = away.get("battingOrder", [])
-
-        # 타순 파싱
-        def parse_lineup(players: dict, batting_order: list) -> list:
-            lineup = []
-            for i, pid in enumerate(batting_order):
-                key = f"ID{pid}"
-                player = players.get(key, {})
-                person = player.get("person", {})
-                pos = player.get("position", {})
-                lineup.append({
-                    "order": i + 1,
-                    "name": person.get("fullName", ""),
-                    "position": pos.get("abbreviation", ""),
-                })
-            return lineup
-
-        home_lineup = parse_lineup(home_players, home_batting_order)
-        away_lineup = parse_lineup(away_players, away_batting_order)
-
-        # 선발투수 파싱
-        def get_starter(players: dict) -> Optional[str]:
-            for key, player in players.items():
-                game_status = player.get("gameStatus", {})
-                stats = player.get("stats", {})
-                pitching = stats.get("pitching", {})
-                # 선발투수: gamesStarted=1 이거나 gameStarted 상태
-                if (game_status.get("isCurrentPitcher") or pitching.get("gamesStarted", 0) == 1):
-                    return player.get("person", {}).get("fullName")
-            return None
-
-        # pitchingOrder로 선발 찾기
-        def get_starter_from_order(players: dict) -> Optional[str]:
-            for key, player in players.items():
-                if player.get("stats", {}).get("pitching", {}).get("gamesStarted", 0) == 1:
-                    return player.get("person", {}).get("fullName")
-            return None
-
-        home_starter = get_starter_from_order(home_players)
-        away_starter = get_starter_from_order(away_players)
-
-        # boxscore에 라인업이 없으면 probable pitchers 시도
-        if not home_lineup and not away_lineup:
+        resp = httpx.get(
+            f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live",
+            timeout=15,
+        )
+        if resp.status_code != 200:
             return _fetch_probable_pitchers_sync(game_pk)
 
-        confirmed = bool(home_lineup and away_lineup)
+        data = resp.json()
+        box = data.get("liveData", {}).get("boxscore", {})
+        teams = box.get("teams", {})
+
+        def parse_side(side: str) -> tuple[list, Optional[str]]:
+            t = teams.get(side, {})
+            players = t.get("players", {})
+            batting_order = t.get("battingOrder", [])
+            pitchers_order = t.get("pitchers", [])
+
+            lineup = []
+            for i, pid in enumerate(batting_order):
+                p = players.get(f"ID{pid}", {})
+                lineup.append({
+                    "order": i + 1,
+                    "name": p.get("person", {}).get("fullName", ""),
+                    "position": p.get("position", {}).get("abbreviation", ""),
+                })
+
+            # 선발투수: pitchers 리스트 첫번째 OR gamesStarted=1
+            starter = None
+            if pitchers_order:
+                sp = players.get(f"ID{pitchers_order[0]}", {})
+                starter = sp.get("person", {}).get("fullName")
+            if not starter:
+                for p in players.values():
+                    if p.get("stats", {}).get("pitching", {}).get("gamesStarted", 0) == 1:
+                        starter = p.get("person", {}).get("fullName")
+                        break
+
+            return lineup, starter
+
+        home_lineup, home_starter = parse_side("home")
+        away_lineup, away_starter = parse_side("away")
+
+        if not home_lineup and not away_lineup:
+            # 타순 미제출 — probable pitchers만 반환
+            return _fetch_probable_pitchers_sync(game_pk)
+
         return {
             "home_starter": home_starter,
             "away_starter": away_starter,
             "home_lineup": home_lineup,
             "away_lineup": away_lineup,
-            "confirmed": confirmed,
-            "source": "mlb_boxscore",
+            "confirmed": bool(home_lineup and away_lineup),
+            "source": "mlb_live",
         }
 
     except Exception as e:
-        logger.debug(f"MLB boxscore 수집 실패 ({game_pk}): {e}")
+        logger.debug(f"MLB live feed 수집 실패 ({game_pk}): {e}")
         return _fetch_probable_pitchers_sync(game_pk)
 
 

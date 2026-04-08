@@ -4,6 +4,27 @@ GET /api/v1/history/calendar - 월별 달력 뷰 (일별 적중 현황)
 GET /api/v1/history/teams    - 팀별 예측 정확도
 GET /api/v1/history/betting  - 베팅 시뮬레이터용 전체 데이터 (오래된순)
 """
+
+MLB_TEAM_KO: dict[str, str] = {
+    "NYY": "뉴욕 양키스", "BOS": "보스턴 레드삭스", "TOR": "토론토 블루제이스",
+    "TB": "탬파베이 레이스", "BAL": "볼티모어 오리올스",
+    "CLE": "클리블랜드 가디언스", "MIN": "미네소타 트윈스", "CWS": "시카고 화이트삭스",
+    "KC": "캔자스시티 로열스", "DET": "디트로이트 타이거스",
+    "HOU": "휴스턴 애스트로스", "SEA": "시애틀 매리너스", "LAA": "로스앤젤레스 에인절스",
+    "OAK": "오클랜드 애슬레틱스", "TEX": "텍사스 레인저스",
+    "ATL": "애틀랜타 브레이브스", "NYM": "뉴욕 메츠", "PHI": "필라델피아 필리스",
+    "MIA": "마이애미 말린스", "WSH": "워싱턴 내셔널스",
+    "MIL": "밀워키 브루어스", "STL": "세인트루이스 카디널스", "CHC": "시카고 컵스",
+    "CIN": "신시내티 레즈", "PIT": "피츠버그 파이리츠",
+    "LAD": "LA 다저스", "SF": "샌프란시스코 자이언츠", "SD": "샌디에이고 파드리스",
+    "COL": "콜로라도 로키스", "ARI": "애리조나 다이아몬드백스",
+}
+
+
+def _team_name(team, league: str) -> str:
+    if league == "MLB":
+        return MLB_TEAM_KO.get(team.short_name, team.name)
+    return team.name
 from calendar import monthrange
 from datetime import date
 from typing import Optional
@@ -107,16 +128,21 @@ async def get_history(
         else:
             predicted_win_prob = 1.0 - home_win_prob
 
+        lg = game.league
         predictions.append({
             "game_id": game.id,
             "game_date": str(game.game_date),
-            "matchup": f"{away_team.name if away_team else '?'} vs {home_team.name if home_team else '?'}",
-            "predicted_winner": winner_team.name if winner_team else "알 수 없음",
-            "actual_winner": actual_winner.name if actual_winner else None,
+            "matchup": f"{_team_name(away_team, lg) if away_team else '?'} vs {_team_name(home_team, lg) if home_team else '?'}",
+            "predicted_winner": _team_name(winner_team, lg) if winner_team else "알 수 없음",
+            "actual_winner": _team_name(actual_winner, lg) if actual_winner else None,
             "home_win_prob": home_win_prob,
             "predicted_win_prob": predicted_win_prob,
             "was_correct": pred.was_correct,
             "confidence_tier": pred.confidence_tier,
+            "predicted_home_score": pred.predicted_home_score,
+            "predicted_away_score": pred.predicted_away_score,
+            "home_score": game.home_score,
+            "away_score": game.away_score,
         })
 
     return {

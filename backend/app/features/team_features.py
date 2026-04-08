@@ -135,14 +135,14 @@ async def get_team_form_features(
     # 상대전적 (최근 2년)
     if opponent_id:
         from datetime import timedelta
-        two_years_ago = date(cutoff_date.year - 2, cutoff_date.month, cutoff_date.day)
+        one_year_ago = date(cutoff_date.year - 1, cutoff_date.month, cutoff_date.day)
         h2h_stmt = (
             select(Game)
             .where(
                 and_(
                     Game.status == "final",
                     Game.game_date < cutoff_date,
-                    Game.game_date >= two_years_ago,
+                    Game.game_date >= one_year_ago,
                     (
                         ((Game.home_team_id == team_id) & (Game.away_team_id == opponent_id))
                         | ((Game.home_team_id == opponent_id) & (Game.away_team_id == team_id))

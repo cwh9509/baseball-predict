@@ -132,6 +132,8 @@ export default function HistoryPage() {
                   <th className="px-4 py-3 text-left">경기</th>
                   <th className="px-4 py-3 text-left">예측</th>
                   <th className="px-4 py-3 text-left">실제</th>
+                  <th className="px-4 py-3 text-center">예측 스코어</th>
+                  <th className="px-4 py-3 text-center">실제 스코어</th>
                   <th className="px-4 py-3 text-center">예측 확률</th>
                   <th className="px-4 py-3 text-center">신뢰도</th>
                   <th className="px-4 py-3 text-center">결과</th>
@@ -139,9 +141,9 @@ export default function HistoryPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={7} className="text-center py-8 text-gray-400">로딩 중...</td></tr>
+                  <tr><td colSpan={9} className="text-center py-8 text-gray-400">로딩 중...</td></tr>
                 ) : predictions.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-8 text-gray-400">{league} 데이터 없음</td></tr>
+                  <tr><td colSpan={9} className="text-center py-8 text-gray-400">{league} 데이터 없음</td></tr>
                 ) : (
                   predictions.map((p: any) => (
                     <tr key={p.game_id} className="hover:bg-gray-50">
@@ -149,6 +151,14 @@ export default function HistoryPage() {
                       <td className="px-4 py-3 font-medium">{p.matchup}</td>
                       <td className="px-4 py-3">{p.predicted_winner}</td>
                       <td className="px-4 py-3 text-gray-500">{p.actual_winner ?? "-"}</td>
+                      <td className="px-4 py-3 text-center text-gray-500">
+                        {p.predicted_away_score != null && p.predicted_home_score != null
+                          ? `${p.predicted_away_score}-${p.predicted_home_score}` : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-center text-gray-500">
+                        {p.away_score != null && p.home_score != null
+                          ? `${p.away_score}-${p.home_score}` : "-"}
+                      </td>
                       <td className="px-4 py-3 text-center">{((p.predicted_win_prob ?? p.home_win_prob) * 100).toFixed(0)}%</td>
                       <td className="px-4 py-3 text-center">{CONFIDENCE_LABELS[p.confidence_tier]}</td>
                       <td className="px-4 py-3 text-center">
