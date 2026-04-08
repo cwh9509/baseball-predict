@@ -529,27 +529,54 @@ async def trigger_migrate():
 
 
 @router.post("/collect-results")
-async def trigger_collect_results(target_date: str = Query(default=None)):
-    """전날 경기 결과 수집 수동 트리거"""
+async def trigger_collect_results(
+    target_date: str = Query(default=None),
+    from_date: str = Query(default=None, description="범위 시작 YYYY-MM-DD (to_date와 함께 사용)"),
+    to_date: str = Query(default=None, description="범위 종료 YYYY-MM-DD"),
+    league: str = Query(default=None, description="리그 (KBO/MLB, 기본: 전체)"),
+):
+    """경기 결과 수집 수동 트리거. from_date~to_date 범위 또는 단일 날짜."""
     import asyncio
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, date as date_cls
     from app.pipeline.etl_runner import ETLRunner
 
+    # 범위 모드
+    if from_date and to_date:
+        s = date_cls.fromisoformat(from_date)
+        e = date_cls.fromisoformat(to_date)
+        leagues = [league.upper()] if league else ["KBO", "MLB"]
+
+        async def _run_range():
+            cur = s
+            while cur <= e:
+                for lg in leagues:
+                    try:
+                        runner = ETLRunner(league=lg)
+                        await runner.run_results(cur)
+                    except Exception as ex:
+                        logger.warning(f"결과 수집 실패 ({lg} {cur}): {ex}")
+                cur += timedelta(days=1)
+            logger.info(f"범위 결과 수집 완료: {s} ~ {e}")
+
+        _create_background_task(_run_range())
+        return {"status": "started", "from": str(s), "to": str(e), "leagues": leagues}
+
+    # 단일 날짜 모드
     if target_date:
         d = datetime.strptime(target_date, "%Y-%m-%d").date()
     else:
-        from datetime import date as date_cls
         d = date_cls.today() - timedelta(days=1)
 
-    logger.info(f"수동 트리거: 경기 결과 수집 시작 ({d})")
+    leagues = [league.upper()] if league else ["KBO", "MLB"]
 
     async def _run():
-        runner = ETLRunner()
-        await runner.run_results(d)
+        for lg in leagues:
+            runner = ETLRunner(league=lg)
+            await runner.run_results(d)
         logger.info(f"경기 결과 수집 완료: {d}")
 
     _create_background_task(_run())
-    return {"status": "started", "date": str(d)}
+    return {"status": "started", "date": str(d), "leagues": leagues}
 
 
 @router.post("/backfill")

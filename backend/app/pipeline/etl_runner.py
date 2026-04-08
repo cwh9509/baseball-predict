@@ -131,7 +131,7 @@ class ETLRunner:
                     winner_short = raw.home_team_short if raw.home_score > raw.away_score \
                         else raw.away_team_short
 
-                # games 업데이트
+                # games 업데이트: external_game_id 우선 → 팀명 fallback
                 stmt = (
                     select(Game)
                     .where(Game.external_game_id == raw.external_game_id)
@@ -139,6 +139,24 @@ class ETLRunner:
                 )
                 result = await db.execute(stmt)
                 game = result.scalar_one_or_none()
+
+                if not game and raw.external_game_id:
+                    # external_game_id 없는 기존 경기 → 팀 + 날짜로 매칭
+                    home_team = await self._get_team_by_short(db, raw.home_team_short, raw.league)
+                    away_team = await self._get_team_by_short(db, raw.away_team_short, raw.league)
+                    if home_team and away_team:
+                        fallback = await db.execute(
+                            select(Game).where(
+                                Game.game_date == raw.game_date,
+                                Game.home_team_id == home_team.id,
+                                Game.away_team_id == away_team.id,
+                                Game.league == raw.league,
+                            )
+                        )
+                        game = fallback.scalar_one_or_none()
+                        if game:
+                            game.external_game_id = raw.external_game_id
+
                 if game:
                     game.status = "final"
                     game.home_score = raw.home_score
