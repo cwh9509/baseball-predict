@@ -71,7 +71,7 @@ export default function GameCard({ game, currentDate, league }: Props) {
         <div className="flex items-center justify-between mt-3 text-xs">
           <span className="text-gray-400">
             {game.game_time
-              ? `${game.game_time.slice(0, 5)} ${league === "MLB" ? "ET" : "KST"}`
+              ? `${game.game_time.slice(0, 5)} KST`
               : "시간 미정"}
             {game.venue && ` · ${game.venue}`}
           </span>

@@ -32,18 +32,49 @@ async def run() -> None:
 
 async def run_mlb() -> None:
     """당일 미확정 MLB 경기 선발투수 체크 및 업데이트"""
-    today = datetime.now(KST).date()
-    await run_for_date_mlb(today)
+    # MLB 경기는 미국 동부 날짜 기준으로 저장됨 — ET 날짜 사용
+    from dateutil import tz as dateutil_tz
+    ET = dateutil_tz.gettz("America/New_York")
+    today_et = datetime.now(ET).date()
+    await run_for_date_mlb(today_et)
 
 
 async def run_for_date_mlb(target_date: date) -> None:
     """MLB probable pitchers + statsapi boxscore 라인업 수집 및 예측 재실행"""
     logger.info(f"MLB 라인업 감시 시작 ({target_date})")
 
-    from app.collectors.mlb_lineup_collector import fetch_mlb_schedule_starters, fetch_mlb_lineup
+    import httpx
+    from app.models import Team
 
-    # 일정 API에서 probable pitchers
-    starters_map = await fetch_mlb_schedule_starters(target_date)
+    # statsapi 스케줄에서 probable pitchers + 팀 약어 조회
+    # (game_pk → (home_abbr, away_abbr, home_starter, away_starter))
+    pk_info: dict[str, tuple[str, str, Optional[str], Optional[str]]] = {}
+    # (home_abbr, away_abbr) → game_pk
+    team_to_pk: dict[tuple[str, str], str] = {}
+
+    try:
+        def _fetch_schedule():
+            return httpx.get(
+                "https://statsapi.mlb.com/api/v1/schedule",
+                params={"sportId": 1, "date": target_date.isoformat(), "hydrate": "probablePitcher"},
+                timeout=15,
+            ).json()
+
+        sched = await asyncio.to_thread(_fetch_schedule)
+        for d in sched.get("dates", []):
+            for g in d.get("games", []):
+                gid = str(g.get("gamePk", ""))
+                home_abbr = g["teams"]["home"]["team"].get("abbreviation", "")
+                away_abbr = g["teams"]["away"]["team"].get("abbreviation", "")
+                home_sp = g["teams"]["home"].get("probablePitcher", {}).get("fullName") or None
+                away_sp = g["teams"]["away"].get("probablePitcher", {}).get("fullName") or None
+                if gid and home_abbr and away_abbr:
+                    pk_info[gid] = (home_abbr, away_abbr, home_sp, away_sp)
+                    team_to_pk[(home_abbr, away_abbr)] = gid
+    except Exception as e:
+        logger.warning(f"statsapi 스케줄 조회 실패 ({target_date}): {e}")
+
+    from app.collectors.mlb_lineup_collector import fetch_mlb_lineup
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -63,30 +94,36 @@ async def run_for_date_mlb(target_date: date) -> None:
             return
 
         logger.info(f"MLB {len(games)}경기 라인업 확인 중... ({target_date})")
-        now_kst = datetime.now(KST)
 
         updated_count = 0
         for game in games:
-            game_pk = game.external_game_id
-            if not game_pk:
-                continue
-
-            # 이미 시작된 경기는 예측 불필요 — 스킵
-            if game.game_time:
-                try:
-                    h, m, *_ = str(game.game_time).split(":")
-                    game_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-                    if now_kst >= game_dt:
-                        logger.debug(f"MLB game_id={game.id} 이미 시작된 경기 — 라인업 감시 스킵")
-                        continue
-                except Exception:
-                    pass
-
             try:
-                home_starter, away_starter = starters_map.get(game_pk, (None, None))
-                lineup_data = None
+                game_pk = game.external_game_id
 
-                # statsapi probable pitchers (경기 전 선발 확인)
+                # external_game_id 없으면 팀 약어로 statsapi gamePk 찾기
+                if not game_pk:
+                    home_team = (await db.execute(select(Team).where(Team.id == game.home_team_id))).scalar_one_or_none()
+                    away_team = (await db.execute(select(Team).where(Team.id == game.away_team_id))).scalar_one_or_none()
+                    if home_team and away_team:
+                        game_pk = team_to_pk.get((home_team.short_name, away_team.short_name))
+                        if game_pk:
+                            # DB에 external_game_id 저장
+                            await db.execute(
+                                update(Game).where(Game.id == game.id).values(external_game_id=game_pk)
+                            )
+                            await db.commit()
+                            logger.info(f"MLB game_id={game.id} external_game_id 복구: {game_pk}")
+
+                if not game_pk:
+                    logger.debug(f"MLB game_id={game.id} statsapi gamePk 찾기 실패 — 스킵")
+                    continue
+
+                # probable pitchers
+                info = pk_info.get(game_pk)
+                home_starter = info[2] if info else None
+                away_starter = info[3] if info else None
+
+                lineup_data = None
                 if home_starter or away_starter:
                     lineup_data = {
                         "home_starter": home_starter,
@@ -97,7 +134,7 @@ async def run_for_date_mlb(target_date: date) -> None:
                         "source": "mlb_schedule",
                     }
 
-                # statsapi boxscore로 타순 보완 (경기 당일 라인업 발표 후)
+                # statsapi live feed로 타순 보완 (라인업 발표 후 ~ 경기 중)
                 boxscore = await fetch_mlb_lineup(game_pk)
                 if boxscore:
                     if lineup_data:
