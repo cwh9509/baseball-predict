@@ -198,6 +198,17 @@ async def trigger_collect(target_date: str = Query(default=None), force: bool = 
     return {"status": "started", "date": str(d), "force": force}
 
 
+@router.post("/collect-mlb-week")
+async def trigger_collect_mlb_week():
+    """오늘부터 7일치 MLB 경기 수집 + 예측 수동 트리거"""
+    import asyncio
+    from app.core.scheduler import _run_mlb_next_day_collect
+
+    logger.info("수동 트리거: MLB 7일치 경기 수집 시작")
+    asyncio.create_task(_run_mlb_next_day_collect())
+    return {"status": "started", "days": 7}
+
+
 @router.delete("/predictions")
 async def delete_predictions(target_date: str = Query(...)):
     """특정 날짜 예측 삭제"""
