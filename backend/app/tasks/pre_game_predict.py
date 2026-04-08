@@ -17,11 +17,13 @@ async def run(target_date: date | None = None, force: bool = False) -> None:
     today = target_date or date.today()
     logger.info(f"당일 경기 예측 시작: {today}")
 
-    # 일정 수집: 게임 없거나 force일 때 실행 (KBO + MLB 모두)
+    # 일정 수집: 리그별로 독립적으로 체크 (KBO 있어도 MLB 수집)
     async with AsyncSessionLocal() as _db:
-        _existing = await _db.execute(select(Game).where(Game.game_date == today).limit(1))
-        if not _existing.scalar_one_or_none() or force:
-            for _league in ["KBO", "MLB"]:
+        for _league in ["KBO", "MLB"]:
+            _existing = await _db.execute(
+                select(Game).where(Game.game_date == today, Game.league == _league).limit(1)
+            )
+            if not _existing.scalar_one_or_none() or force:
                 try:
                     runner = ETLRunner(league=_league)
                     await runner.run_for_date(today)
