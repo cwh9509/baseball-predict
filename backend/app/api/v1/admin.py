@@ -647,85 +647,145 @@ async def trigger_backtest(
     return {"status": "started", "league": lg, "start": start, "end": end}
 
 
-@router.post("/fix-mlb-starters")
-async def fix_mlb_starters(
-    from_date: str = Query(default=None, description="시작일 YYYY-MM-DD (기본: 오늘-30일)"),
+@router.post("/fix-mlb-games")
+async def fix_mlb_games(
+    from_date: str = Query(default=None, description="시작일 YYYY-MM-DD (기본: 오늘-7일)"),
     to_date: str = Query(default=None, description="종료일 YYYY-MM-DD (기본: 오늘+7일)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """MLB 경기의 누락된 선발투수 + 타순을 statsapi에서 재수집"""
+    """MLB 경기의 game_time(KST), external_game_id, 선발투수, 타순을 statsapi에서 일괄 보정.
+    external_game_id 없는 경기도 홈/원정팀 약어로 매칭함."""
     from datetime import date, timedelta
     from sqlalchemy import select, update
-    from app.models import Game
+    from app.models import Game, Team
     from app.collectors.mlb_lineup_collector import fetch_mlb_lineup
+    from app.pipeline.normalizer import _parse_game_time
 
     today = date.today()
-    start = date.fromisoformat(from_date) if from_date else today - timedelta(days=30)
+    start = date.fromisoformat(from_date) if from_date else today - timedelta(days=7)
     end = date.fromisoformat(to_date) if to_date else today + timedelta(days=7)
 
     import httpx
     updated = 0
     skipped = 0
 
-    # 날짜별로 statsapi probable pitchers 조회
     cur = start
     while cur <= end:
         try:
             resp = httpx.get(
                 "https://statsapi.mlb.com/api/v1/schedule",
                 params={"sportId": 1, "date": cur.isoformat(), "hydrate": "probablePitcher"},
-                timeout=10,
+                timeout=15,
             )
-            dates = resp.json().get("dates", [])
-            for d in dates:
+            dates_data = resp.json().get("dates", [])
+            for d in dates_data:
                 for g in d.get("games", []):
+                    game_type = g.get("gameType", "R")
+                    if game_type not in {"R", "F", "D", "L", "W", "P"}:
+                        continue
+
                     gid = str(g.get("gamePk", ""))
-                    home_p = g["teams"]["home"].get("probablePitcher", {}).get("fullName") or None
-                    away_p = g["teams"]["away"].get("probablePitcher", {}).get("fullName") or None
                     if not gid:
                         skipped += 1
                         continue
 
-                    result = await db.execute(
+                    home_abbr = g["teams"]["home"]["team"].get("abbreviation", "")
+                    away_abbr = g["teams"]["away"]["team"].get("abbreviation", "")
+                    home_sp = g["teams"]["home"].get("probablePitcher", {}).get("fullName") or None
+                    away_sp = g["teams"]["away"].get("probablePitcher", {}).get("fullName") or None
+                    game_datetime = g.get("gameDate", "")  # UTC ISO: "2026-04-08T17:05:00Z"
+
+                    # DB 경기 찾기: external_game_id 우선, 없으면 팀명 매칭
+                    db_game_res = await db.execute(
                         select(Game).where(Game.external_game_id == gid, Game.league == "MLB")
                     )
-                    game = result.scalar_one_or_none()
-                    if not game:
+                    db_game = db_game_res.scalar_one_or_none()
+
+                    if not db_game and home_abbr and away_abbr:
+                        home_team_res = await db.execute(
+                            select(Team).where(Team.short_name == home_abbr, Team.league == "MLB")
+                        )
+                        away_team_res = await db.execute(
+                            select(Team).where(Team.short_name == away_abbr, Team.league == "MLB")
+                        )
+                        home_t = home_team_res.scalar_one_or_none()
+                        away_t = away_team_res.scalar_one_or_none()
+                        if home_t and away_t:
+                            fallback_res = await db.execute(
+                                select(Game).where(
+                                    Game.game_date == cur,
+                                    Game.home_team_id == home_t.id,
+                                    Game.away_team_id == away_t.id,
+                                    Game.league == "MLB",
+                                )
+                            )
+                            db_game = fallback_res.scalar_one_or_none()
+
+                    if not db_game:
                         skipped += 1
                         continue
 
                     vals = {}
-                    if home_p and game.home_starter_name != home_p:
-                        vals["home_starter_name"] = home_p
-                    if away_p and game.away_starter_name != away_p:
-                        vals["away_starter_name"] = away_p
 
-                    # 타순 보완 — live feed에서 수집
-                    if not game.home_lineup_json or not game.away_lineup_json:
+                    # external_game_id 복구
+                    if not db_game.external_game_id:
+                        vals["external_game_id"] = gid
+
+                    # game_time 재계산 (UTC → KST)
+                    if game_datetime:
+                        new_time = _parse_game_time(game_datetime[:16].rstrip("Z"), "MLB")
+                        if new_time:
+                            # 기존과 다를 때만 업데이트 (분 단위 비교)
+                            old_str = str(db_game.game_time or "")[:5]
+                            new_str = str(new_time)[:5]
+                            if old_str != new_str:
+                                vals["game_time"] = new_time
+
+                    # 선발투수 업데이트 (항상 최신 probable pitcher로 갱신)
+                    if home_sp and db_game.home_starter_name != home_sp:
+                        vals["home_starter_name"] = home_sp
+                    if away_sp and db_game.away_starter_name != away_sp:
+                        vals["away_starter_name"] = away_sp
+
+                    # 타순 보완 — live feed에서 수집 (아직 없는 경우만)
+                    if not db_game.home_lineup_json or not db_game.away_lineup_json:
                         lineup = await fetch_mlb_lineup(gid)
                         if lineup:
-                            if lineup.get("home_lineup") and not game.home_lineup_json:
+                            if lineup.get("home_lineup") and not db_game.home_lineup_json:
                                 vals["home_lineup_json"] = lineup["home_lineup"]
-                            if lineup.get("away_lineup") and not game.away_lineup_json:
+                            if lineup.get("away_lineup") and not db_game.away_lineup_json:
                                 vals["away_lineup_json"] = lineup["away_lineup"]
-                            # 선발투수도 live feed에서 보완
-                            if lineup.get("home_starter") and not vals.get("home_starter_name") and not game.home_starter_name:
+                            if lineup.get("home_starter") and not vals.get("home_starter_name") and not db_game.home_starter_name:
                                 vals["home_starter_name"] = lineup["home_starter"]
-                            if lineup.get("away_starter") and not vals.get("away_starter_name") and not game.away_starter_name:
+                            if lineup.get("away_starter") and not vals.get("away_starter_name") and not db_game.away_starter_name:
                                 vals["away_starter_name"] = lineup["away_starter"]
 
                     if vals:
-                        await db.execute(update(Game).where(Game.id == game.id).values(**vals))
+                        # 선발투수가 바뀌었으면 lineup_locked 리셋 → 예측 재실행 트리거
+                        if "home_starter_name" in vals or "away_starter_name" in vals:
+                            vals["lineup_locked"] = False
+                            vals["lineup_locked_at"] = None
+                        await db.execute(update(Game).where(Game.id == db_game.id).values(**vals))
                         updated += 1
                     else:
                         skipped += 1
 
             await db.commit()
         except Exception as e:
-            logger.warning(f"MLB 선발/타순 보완 실패 ({cur}): {e}")
+            logger.warning(f"MLB 경기 보정 실패 ({cur}): {e}")
         cur += timedelta(days=1)
 
     return {"updated": updated, "skipped": skipped, "from": str(start), "to": str(end)}
+
+
+@router.post("/fix-mlb-starters")
+async def fix_mlb_starters(
+    from_date: str = Query(default=None),
+    to_date: str = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """fix-mlb-games로 대체됨 (하위 호환용)"""
+    return await fix_mlb_games(from_date=from_date, to_date=to_date, db=db)
 
 
 @router.post("/cache/flush")
