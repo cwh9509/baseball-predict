@@ -172,30 +172,90 @@ async def trigger_retrain(league: str = Query(default=None)):
 
 
 @router.post("/collect")
-async def trigger_collect(target_date: str = Query(default=None), force: bool = Query(default=False), league: str = Query(default=None)):
-    """경기 수집 + 예측 수동 트리거. force=true면 기존 예측 삭제 후 재생성. league=MLB로 특정 리그만 수집 가능"""
-    from app.tasks.pre_game_predict import run
+async def trigger_collect(
+    target_date: str = Query(default=None),
+    force: bool = Query(default=False),
+    league: str = Query(default=None, description="KBO 또는 MLB (지정 시 해당 리그만 수집)"),
+):
+    """경기 수집 + 예측 수동 트리거. force=true면 기존 예측 삭제 후 재생성. league=MLB면 MLB만 수집"""
     import asyncio
     from datetime import datetime
 
     parsed_date = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else None
     d = parsed_date or date.today()
+    target_league = league.upper() if league else None
 
     if force:
         from sqlalchemy import delete
         from app.core.database import AsyncSessionLocal
         from app.models import Game, Prediction
-        from sqlalchemy import select
+        from sqlalchemy import select, and_
         async with AsyncSessionLocal() as db:
-            games = (await db.execute(select(Game).where(Game.game_date == d))).scalars().all()
+            cond = [Game.game_date == d]
+            if target_league:
+                cond.append(Game.league == target_league)
+            games = (await db.execute(select(Game).where(and_(*cond)))).scalars().all()
             for game in games:
                 await db.execute(delete(Prediction).where(Prediction.game_id == game.id))
             await db.commit()
-        logger.info(f"기존 예측 삭제 완료: {d}")
+        logger.info(f"기존 예측 삭제 완료: {d} (league={target_league or '전체'})")
 
-    logger.info(f"수동 트리거: 경기 수집 + 예측 시작 ({d})")
-    _create_background_task(run(parsed_date, force=force))
-    return {"status": "started", "date": str(d), "force": force}
+    async def _run():
+        from app.pipeline.etl_runner import ETLRunner
+        from app.ml.predictor import Predictor
+        from app.core.database import AsyncSessionLocal
+        from app.models import Game, Prediction
+        from sqlalchemy import select, and_, or_
+
+        leagues = [target_league] if target_league else ["KBO", "MLB"]
+
+        # 경기 수집
+        for lg in leagues:
+            try:
+                runner = ETLRunner(league=lg)
+                await runner.run_for_date(d)
+            except Exception as ex:
+                logger.warning(f"{lg} 경기 수집 실패: {ex}")
+
+        # 예측 생성
+        async with AsyncSessionLocal() as db:
+            cond = [Game.game_date == d]
+            if target_league:
+                cond.append(Game.league == target_league)
+            if force:
+                cond.append(or_(Game.status == "scheduled", Game.status == "final", Game.status == "in_progress"))
+            else:
+                cond.append(Game.status == "scheduled")
+            games = (await db.execute(select(Game).where(and_(*cond)))).scalars().all()
+
+            try:
+                predictor = Predictor()
+            except Exception as ex:
+                logger.error(f"예측 모델 로드 실패: {ex}")
+                return
+
+            predicted = 0
+            for game in games:
+                existing = await db.execute(
+                    select(Prediction).where(
+                        Prediction.game_id == game.id,
+                        Prediction.model_version == predictor.model_version,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                try:
+                    result = await predictor.predict(game.id, db)
+                    if result:
+                        db.add(Prediction(**result))
+                        predicted += 1
+                except Exception as ex:
+                    logger.warning(f"game {game.id} 예측 실패: {ex}")
+            await db.commit()
+        logger.info(f"수집+예측 완료: {d} (leagues={leagues}, predicted={predicted})")
+
+    _create_background_task(_run())
+    return {"status": "started", "date": str(d), "force": force, "league": target_league or "전체"}
 
 
 @router.post("/collect-mlb-week")
@@ -826,6 +886,40 @@ async def fix_mlb_starters(
 ):
     """fix-mlb-games로 대체됨 (하위 호환용)"""
     return await fix_mlb_games(from_date=from_date, to_date=to_date, db=db)
+
+
+@router.get("/debug/games")
+async def debug_games(
+    target_date: str = Query(..., description="YYYY-MM-DD"),
+    league: str = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """특정 날짜의 경기 목록과 game_date/game_time 확인용 디버그"""
+    from sqlalchemy import select, and_
+    from app.models import Game, Team
+
+    cond = [Game.game_date == date.fromisoformat(target_date)]
+    if league:
+        cond.append(Game.league == league.upper())
+    games = (await db.execute(select(Game).where(and_(*cond)).order_by(Game.game_time))).scalars().all()
+
+    result = []
+    for g in games:
+        home = (await db.execute(select(Team).where(Team.id == g.home_team_id))).scalar_one_or_none()
+        away = (await db.execute(select(Team).where(Team.id == g.away_team_id))).scalar_one_or_none()
+        result.append({
+            "id": g.id,
+            "league": g.league,
+            "game_date": str(g.game_date),
+            "game_time": str(g.game_time),
+            "status": g.status,
+            "home": home.short_name if home else "?",
+            "away": away.short_name if away else "?",
+            "external_game_id": g.external_game_id,
+            "home_starter": g.home_starter_name,
+            "lineup_locked": g.lineup_locked,
+        })
+    return {"date": target_date, "count": len(result), "games": result}
 
 
 @router.post("/cache/flush")
