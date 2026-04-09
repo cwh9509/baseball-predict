@@ -126,7 +126,16 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (10개 작업)")
+    # MLB 당일 결과 수집 (ET 03:00 = KST 17:00) — 서부 경기까지 거의 종료되는 시간
+    scheduler.add_job(
+        _run_mlb_results_collect,
+        trigger=CronTrigger(hour=3, minute=0, timezone=settings.scheduler_timezone),
+        id="mlb_results_collect",
+        name="MLB 당일 결과 수집 (KST 17:00)",
+        replace_existing=True,
+    )
+
+    logger.info("스케줄러 작업 등록 완료 (11개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -227,3 +236,25 @@ async def _run_mlb_lineup_watch() -> None:
         await run_mlb()
     except Exception as e:
         logger.error(f"mlb_lineup_watch 실패: {e}", exc_info=True)
+
+
+async def _run_mlb_results_collect() -> None:
+    """ET 03:00 (= KST 17:00) — 당일 MLB 경기 결과 수집 + was_correct 업데이트"""
+    try:
+        from datetime import date
+        from dateutil import tz as dateutil_tz
+        from app.pipeline.etl_runner import ETLRunner
+        from app.core.redis_client import cache_delete
+
+        ET = dateutil_tz.gettz("America/New_York")
+        today_et = date.today()  # 스케줄러가 ET 기준이므로 date.today() = ET 날짜
+        logger.info(f"MLB 당일 결과 수집 시작 (ET {today_et})")
+
+        runner = ETLRunner(league="MLB")
+        await runner.run_results(today_et)
+
+        # 히스토리 캐시 플러시
+        await cache_delete(f"games:today:MLB:{today_et.isoformat()}")
+        logger.info(f"MLB 당일 결과 수집 완료 (ET {today_et})")
+    except Exception as e:
+        logger.error(f"mlb_results_collect 실패: {e}", exc_info=True)
