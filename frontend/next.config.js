@@ -4,6 +4,15 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.mlbstatic.com",
+        pathname: "/team-logos/**",
+      },
+    ],
+  },
 }
 
 module.exports = nextConfig

@@ -81,20 +81,13 @@ export const MLB_TEAM_ID: Record<string, number> = {
   STL: 138, TB: 139, TEX: 140, TOR: 141, WSH: 120,
 }
 
-// KBO ESPN 약어 매핑 (ESPN CDN 로고용)
-const KBO_ESPN: Record<string, string> = {
-  KIA: "kia", 삼성: "samsung", LG: "lg", 두산: "doosan",
-  KT: "kt", SSG: "ssg", 롯데: "lotte", 한화: "hanwha",
-  NC: "nc", 키움: "kiwoom",
-}
-
 export function getTeamLogoUrl(shortName: string, league?: string): string | null {
   if (league === "MLB") {
     const id = MLB_TEAM_ID[shortName]
     return id ? `https://www.mlbstatic.com/team-logos/${id}.svg` : null
   }
-  const espn = KBO_ESPN[shortName]
-  return espn ? `https://a.espncdn.com/i/teamlogos/kbo/500/${espn}.png` : null
+  // KBO: ESPN CDN이 404 반환 → 색상 배지 폴백 사용
+  return null
 }
 
 export const IMPACT_ICONS: Record<string, string> = {

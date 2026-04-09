@@ -145,17 +145,23 @@ class ETLRunner:
                     home_team = await self._get_team_by_short(db, raw.home_team_short, raw.league)
                     away_team = await self._get_team_by_short(db, raw.away_team_short, raw.league)
                     if home_team and away_team:
-                        fallback = await db.execute(
-                            select(Game).where(
-                                Game.game_date == raw.game_date,
-                                Game.home_team_id == home_team.id,
-                                Game.away_team_id == away_team.id,
-                                Game.league == raw.league,
+                        # raw.game_date는 KST 기준; 기존 DB 경기는 ET 기준(=KST-1)일 수 있어서 둘 다 시도
+                        for try_date in [raw.game_date, raw.game_date - timedelta(days=1)]:
+                            fallback = await db.execute(
+                                select(Game).where(
+                                    Game.game_date == try_date,
+                                    Game.home_team_id == home_team.id,
+                                    Game.away_team_id == away_team.id,
+                                    Game.league == raw.league,
+                                )
                             )
-                        )
-                        game = fallback.scalar_one_or_none()
-                        if game:
-                            game.external_game_id = raw.external_game_id
+                            game = fallback.scalar_one_or_none()
+                            if game:
+                                game.external_game_id = raw.external_game_id
+                                # ET 날짜로 저장된 경기를 KST 날짜로 보정
+                                if game.game_date != raw.game_date:
+                                    game.game_date = raw.game_date
+                                break
 
                 if game:
                     game.status = "final"
