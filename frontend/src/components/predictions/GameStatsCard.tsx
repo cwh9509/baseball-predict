@@ -90,6 +90,47 @@ function CompareRow({ label, home, away, fmt: fmtFn = fmt, digits, lowerBetter =
   )
 }
 
+// 불펜 피로도 뱃지
+function FatigueBadge({ score }: { score: number | null | undefined }) {
+  if (score == null || isNaN(Number(score))) return <span className="text-gray-300 text-xs">-</span>
+  const v = Number(score)
+  if (v >= 0.9) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">고피로</span>
+  if (v >= 0.6) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">주의</span>
+  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">양호</span>
+}
+
+// 득점 추이 뱃지
+function ScoringTrendBadge({ trend }: { trend: number | null | undefined }) {
+  if (trend == null) return <span className="text-gray-300 text-xs">-</span>
+  const v = Number(trend)
+  if (v > 0) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔥 Hot</span>
+  if (v < 0) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">❄ Cold</span>
+  return <span className="text-xs px-2 py-0.5 rounded-full bg-gray-50 text-gray-500">보통</span>
+}
+
+// 득점 추이 스파크라인
+function ScoreSparkline({ scores }: { scores?: number[] }) {
+  if (!scores || scores.length === 0) return <span className="text-gray-300 text-xs">-</span>
+  return (
+    <div className="flex items-end gap-0.5 h-6">
+      {scores.slice(0, 5).reverse().map((s, i) => {
+        const h = Math.min(Math.max(s, 0), 12)
+        const pct = (h / 12) * 100
+        return (
+          <div key={i} className="flex flex-col items-center gap-0.5">
+            <div
+              className="w-4 rounded-sm bg-blue-400 flex items-end justify-center"
+              style={{ height: `${Math.max(pct * 0.22, 4)}px` }}
+              title={`${s}점`}
+            />
+            <span className="text-[9px] text-gray-400">{s}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, league }: Props) {
   const s = prediction.feature_snapshot
   const homeRecent = prediction.home_recent_results
@@ -101,6 +142,18 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
 
   const homeIlCount = Number(s.home_il_count ?? 0)
   const awayIlCount = Number(s.away_il_count ?? 0)
+
+  // 선발투수 vs 상대팀 전적
+  const homeSpVsOpp = (s as any).home_sp_vs_opp as { games: number; era: number | null; wins: number; losses: number } | null
+  const awaySpVsOpp = (s as any).away_sp_vs_opp as { games: number; era: number | null; wins: number; losses: number } | null
+
+  // 타선 vs 선발투수 상대전적 (MLB)
+  const homeLineupVsSp = (s as any).home_lineup_vs_sp as { games: number; avg_runs_scored: number; win_rate: number } | null
+  const awayLineupVsSp = (s as any).away_lineup_vs_sp as { games: number; avg_runs_scored: number; win_rate: number } | null
+
+  // 득점 추이
+  const homeRecentScores = (s as any).home_recent_scores as number[] | null
+  const awayRecentScores = (s as any).away_recent_scores as number[] | null
 
   return (
     <div className="space-y-3">
@@ -152,17 +205,52 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
         </div>
       </div>
 
+      {/* ── 선발투수 vs 상대팀 전적 ──────────────────── */}
+      {(homeSpVsOpp?.games || awaySpVsOpp?.games) ? (
+        <div className="bg-white rounded-xl border shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">🆚 선발투수 vs 상대팀 전적</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: awayTeamName, color: "text-red-600", data: awaySpVsOpp, spName: prediction.lineup?.away_starter ?? prediction.away_starter },
+              { label: homeTeamName, color: "text-blue-600", data: homeSpVsOpp, spName: prediction.lineup?.home_starter ?? prediction.home_starter },
+            ].map(({ label, color, data, spName }) => (
+              <div key={label} className="text-center">
+                <div className={`text-xs font-medium ${color} mb-1`}>{label}</div>
+                {spName && <div className="text-xs text-gray-400 mb-2">{spName}</div>}
+                {data && data.games > 0 ? (
+                  <div className="space-y-1">
+                    <div className="text-lg font-bold text-gray-800">{data.wins}승 {data.losses}패</div>
+                    <div className="text-xs text-gray-500">{data.games}경기</div>
+                    {data.era != null && (
+                      <div className="text-xs text-gray-500">ERA {data.era.toFixed(2)}</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-300">상대 전적 없음</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {/* ── 팀 불펜 ─────────────────────────────────── */}
       {(s.home_bullpen_era != null || s.away_bullpen_era != null) && (
         <div className="bg-white rounded-xl border shadow-sm p-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">🔥 팀 불펜</h3>
           <div className="grid grid-cols-3 gap-2 mb-1">
             <div />
-            <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
             <div className="text-center text-xs font-medium text-red-600">{awayTeamName}</div>
+            <div className="text-center text-xs font-medium text-blue-600">{homeTeamName}</div>
           </div>
           <CompareRow label="불펜 ERA"  home={s.home_bullpen_era}  away={s.away_bullpen_era}  lowerBetter />
           <CompareRow label="불펜 WHIP" home={s.home_bullpen_whip} away={s.away_bullpen_whip} lowerBetter />
+          {/* 불펜 실제 피로도 */}
+          <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-gray-50">
+            <div className="text-xs text-gray-400">최근 피로도</div>
+            <div className="flex justify-center"><FatigueBadge score={(s as any).away_bullpen_fatigue} /></div>
+            <div className="flex justify-center"><FatigueBadge score={(s as any).home_bullpen_fatigue} /></div>
+          </div>
         </div>
       )}
 
@@ -214,11 +302,14 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
         <div className="grid grid-cols-2 gap-4">
           {/* 원정 왼쪽, 홈 오른쪽 */}
           {[
-            { label: awayTeamName, color: "text-red-600",  recent: awayRecent, prefix: "away" },
-            { label: homeTeamName, color: "text-blue-600", recent: homeRecent, prefix: "home" },
-          ].map(({ label, color, recent, prefix }) => (
+            { label: awayTeamName, color: "text-red-600",  recent: awayRecent, prefix: "away", scores: awayRecentScores },
+            { label: homeTeamName, color: "text-blue-600", recent: homeRecent, prefix: "home", scores: homeRecentScores },
+          ].map(({ label, color, recent, prefix, scores }) => (
             <div key={prefix}>
-              <p className={`text-xs font-medium ${color} mb-2`}>{label}</p>
+              <div className="flex items-center gap-2 mb-2">
+                <p className={`text-xs font-medium ${color}`}>{label}</p>
+                <ScoringTrendBadge trend={(s as any)[`${prefix}_scoring_trend`]} />
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">최근 5경기</span>
@@ -226,6 +317,19 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
                     <FormDots results={recent} />
                     <span className="text-xs text-gray-600">{pct((s as any)[`${prefix}_win_rate_L5`])}</span>
                   </div>
+                </div>
+                {/* 득점 스파크라인 */}
+                {scores && scores.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">득점 추이</span>
+                    <ScoreSparkline scores={scores} />
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">평균 득점</span>
+                  <span className="text-xs font-medium text-gray-700">
+                    {(s as any)[`${prefix}_avg_runs_scored_L5`] != null ? Number((s as any)[`${prefix}_avg_runs_scored_L5`]).toFixed(1) + "점" : "-"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">최근 10경기</span>
@@ -252,6 +356,32 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
           ))}
         </div>
       </div>
+
+      {/* ── 타선 vs 선발투수 상대전적 (MLB) ─────────── */}
+      {isMLB && (homeLineupVsSp?.games || awayLineupVsSp?.games) ? (
+        <div className="bg-white rounded-xl border shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">🏏 타선 vs 선발투수 상대 성적</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: awayTeamName, color: "text-red-600", data: awayLineupVsSp, spName: prediction.lineup?.home_starter ?? prediction.home_starter },
+              { label: homeTeamName, color: "text-blue-600", data: homeLineupVsSp, spName: prediction.lineup?.away_starter ?? prediction.away_starter },
+            ].map(({ label, color, data, spName }) => (
+              <div key={label} className="text-center">
+                <div className={`text-xs font-medium ${color} mb-0.5`}>{label} 타선</div>
+                {spName && <div className="text-xs text-gray-400 mb-2">vs {spName}</div>}
+                {data && data.games > 0 ? (
+                  <div className="space-y-1">
+                    <div className="text-sm font-bold text-gray-800">{pct(data.win_rate)} 승률</div>
+                    <div className="text-xs text-gray-500">평균 {data.avg_runs_scored.toFixed(1)}점 / {data.games}경기</div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-300">상대 전적 없음</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* ── 상대전적 + 날씨 ───────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">

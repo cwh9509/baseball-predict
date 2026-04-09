@@ -190,3 +190,143 @@ def _empty_form_features() -> dict:
         "h2h_win_pct": float("nan"),
         "h2h_run_diff": float("nan"),
     }
+
+
+async def get_recent_scoring_trend(
+    db: AsyncSession,
+    team_id: int,
+    cutoff_date: date,
+    n: int = 5,
+) -> dict:
+    """
+    최근 N경기 득점 추이
+    Returns: {
+        "scores": [3, 7, 2, 5, 4],   # 최신→과거 순
+        "avg_runs_scored": 4.2,
+        "avg_runs_allowed": 3.8,
+        "trend": "hot" | "cold" | "normal",  # L3 평균 vs L5 전체 평균
+    }
+    """
+    from app.models import Game
+
+    stmt = (
+        select(Game)
+        .where(
+            and_(
+                Game.status == "final",
+                Game.game_date < cutoff_date,
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+                Game.home_score.isnot(None),
+            )
+        )
+        .order_by(Game.game_date.desc())
+        .limit(n)
+    )
+    result = await db.execute(stmt)
+    games = result.scalars().all()
+
+    if not games:
+        return {}
+
+    scores = []
+    runs_allowed = []
+    for g in games:
+        is_home = g.home_team_id == team_id
+        rs = g.home_score if is_home else g.away_score
+        ra = g.away_score if is_home else g.home_score
+        scores.append(rs or 0)
+        runs_allowed.append(ra or 0)
+
+    avg_rs = sum(scores) / len(scores)
+    avg_ra = sum(runs_allowed) / len(runs_allowed)
+
+    # 트렌드: 최근 3경기 평균 득점 vs 전체 평균
+    recent3_avg = sum(scores[:3]) / min(3, len(scores))
+    if recent3_avg >= avg_rs + 1.5:
+        trend = "hot"
+    elif recent3_avg <= avg_rs - 1.5:
+        trend = "cold"
+    else:
+        trend = "normal"
+
+    return {
+        "scores": scores,
+        "avg_runs_scored": round(avg_rs, 2),
+        "avg_runs_allowed": round(avg_ra, 2),
+        "trend": trend,
+    }
+
+
+async def get_batter_vs_pitcher_stats(
+    db: AsyncSession,
+    batting_team_id: int,
+    pitcher_name: Optional[str],
+    league: str,
+    cutoff_date: date,
+    seasons: int = 2,
+) -> dict:
+    """
+    MLB 전용: 타선 vs 특정 선발투수 상대전적 (경기 기반 근사)
+    선발투수가 등판한 경기에서 해당 타선의 득점 패턴
+    Returns: {
+        "games": 경기수,
+        "avg_runs_scored": 평균 득점,
+        "win_rate": 승률,
+    }
+    """
+    from app.models import Game
+    from sqlalchemy import or_
+
+    if not pitcher_name:
+        return {}
+
+    cutoff_start = date(cutoff_date.year - seasons, cutoff_date.month, cutoff_date.day)
+
+    stmt = (
+        select(Game)
+        .where(
+            and_(
+                Game.status == "final",
+                Game.game_date < cutoff_date,
+                Game.game_date >= cutoff_start,
+                Game.league == league,
+                or_(
+                    # 타선이 홈팀, 상대 선발이 원정 선발
+                    and_(
+                        Game.home_team_id == batting_team_id,
+                        Game.away_starter_name == pitcher_name,
+                    ),
+                    # 타선이 원정팀, 상대 선발이 홈 선발
+                    and_(
+                        Game.away_team_id == batting_team_id,
+                        Game.home_starter_name == pitcher_name,
+                    ),
+                ),
+                Game.home_score.isnot(None),
+            )
+        )
+        .order_by(Game.game_date.desc())
+        .limit(20)
+    )
+    result = await db.execute(stmt)
+    games = result.scalars().all()
+
+    if not games:
+        return {}
+
+    total_rs = 0
+    wins = 0
+    for g in games:
+        is_home = g.home_team_id == batting_team_id
+        rs = g.home_score if is_home else g.away_score
+        won = g.winner_team_id == batting_team_id
+        total_rs += (rs or 0)
+        if won:
+            wins += 1
+
+    n = len(games)
+    return {
+        "games": n,
+        "avg_runs_scored": round(total_rs / n, 2),
+        "win_rate": round(wins / n, 3),
+    }

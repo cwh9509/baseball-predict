@@ -96,4 +96,6 @@ export interface PredictionDetail {
   lineup?: Lineup
   home_recent_results?: boolean[]
   away_recent_results?: boolean[]
+  home_starter?: string | null
+  away_starter?: string | null
 }

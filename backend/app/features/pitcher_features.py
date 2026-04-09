@@ -356,3 +356,148 @@ def _imputed_pitcher_features(avg: dict) -> dict:
         "fastball_pct": None,
         "avg_velocity": None,
     }
+
+
+async def get_pitcher_vs_team_stats(
+    db: AsyncSession,
+    pitcher_name: Optional[str],
+    opponent_team_id: int,
+    league: str,
+    cutoff_date: date,
+    seasons: int = 2,
+) -> dict:
+    """
+    선발투수 vs 특정 상대팀 전적 (DB 경기 결과 기반)
+    Returns: {
+        "games": 경기수,
+        "era": ERA,
+        "avg_runs_allowed": 평균 실점,
+        "wins": 승수,
+        "losses": 패수,
+    }
+    """
+    from datetime import timedelta
+    from app.models import Game, Team
+    from sqlalchemy import or_
+
+    if not pitcher_name:
+        return {}
+
+    cutoff_start = date(cutoff_date.year - seasons, cutoff_date.month, cutoff_date.day)
+
+    # 해당 투수가 선발로 등판한 경기 중 상대팀이 opponent인 경기 조회
+    stmt = (
+        select(Game)
+        .where(
+            and_(
+                Game.status == "final",
+                Game.game_date < cutoff_date,
+                Game.game_date >= cutoff_start,
+                Game.league == league,
+                or_(
+                    and_(
+                        Game.home_starter_name == pitcher_name,
+                        Game.away_team_id == opponent_team_id,
+                    ),
+                    and_(
+                        Game.away_starter_name == pitcher_name,
+                        Game.home_team_id == opponent_team_id,
+                    ),
+                ),
+                Game.home_score.isnot(None),
+                Game.away_score.isnot(None),
+            )
+        )
+        .order_by(Game.game_date.desc())
+        .limit(30)
+    )
+    result = await db.execute(stmt)
+    games = result.scalars().all()
+
+    if not games:
+        return {}
+
+    wins = 0
+    losses = 0
+    total_runs_allowed = 0
+    total_innings = 0  # 추정 이닝 (경기당 평균 6이닝 가정)
+
+    for g in games:
+        is_home_pitcher = g.home_starter_name == pitcher_name
+        runs_allowed = g.away_score if is_home_pitcher else g.home_score
+        pitcher_team_won = (
+            g.home_score > g.away_score if is_home_pitcher
+            else g.away_score > g.home_score
+        )
+        if pitcher_team_won:
+            wins += 1
+        else:
+            losses += 1
+        total_runs_allowed += (runs_allowed or 0)
+        total_innings += 6  # 선발 평균 이닝 추정
+
+    n = len(games)
+    era = (total_runs_allowed * 9 / total_innings) if total_innings > 0 else None
+
+    return {
+        "games": n,
+        "era": round(era, 2) if era is not None else None,
+        "avg_runs_allowed": round(total_runs_allowed / n, 2) if n > 0 else None,
+        "wins": wins,
+        "losses": losses,
+    }
+
+
+async def get_bullpen_recent_appearances(
+    db: AsyncSession,
+    team_id: int,
+    cutoff_date: date,
+    days: int = 3,
+) -> dict:
+    """
+    팀 불펜 최근 등판 횟수 기반 실제 피로도
+    DB 경기 결과에서 최근 N일 경기 수 + 실점으로 근사
+    Returns: {
+        "appearances_L3": 최근 3일 경기 수,
+        "runs_allowed_L3": 최근 3경기 평균 실점,
+        "fatigue_score": 0~1 피로도 점수,
+    }
+    """
+    from datetime import timedelta
+    from app.models import Game
+
+    cutoff_start = cutoff_date - timedelta(days=days)
+    stmt = (
+        select(Game)
+        .where(
+            and_(
+                Game.status == "final",
+                Game.game_date < cutoff_date,
+                Game.game_date >= cutoff_start,
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+            )
+        )
+        .order_by(Game.game_date.desc())
+    )
+    result = await db.execute(stmt)
+    games = result.scalars().all()
+
+    if not games:
+        return {"appearances_L3": 0, "runs_allowed_L3": float("nan"), "fatigue_score": 0.0}
+
+    n = len(games)
+    total_ra = 0
+    for g in games:
+        is_home = g.home_team_id == team_id
+        ra = g.away_score if is_home else g.home_score
+        total_ra += (ra or 0)
+
+    avg_ra = total_ra / n
+    # 피로도: 3일에 3경기=1.0, 2경기=0.67, 1경기=0.33 (연속 경기일수록 불펜 소진)
+    fatigue_score = min(n / 3.0, 1.0)
+
+    return {
+        "appearances_L3": n,
+        "runs_allowed_L3": round(avg_ra, 2),
+        "fatigue_score": round(fatigue_score, 3),
+    }

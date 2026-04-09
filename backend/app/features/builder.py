@@ -26,8 +26,9 @@ from app.features.pitcher_features import (
     get_kbo_starter_era, get_kbo_starter_stats, get_kbo_bullpen_stats,
     get_mlb_starter_stats, get_mlb_bullpen_stats,
     get_npb_starter_stats, get_npb_bullpen_stats,
+    get_pitcher_vs_team_stats, get_bullpen_recent_appearances,
 )
-from app.features.team_features import get_team_form_features
+from app.features.team_features import get_team_form_features, get_recent_scoring_trend, get_batter_vs_pitcher_stats
 from app.features.weather_features import get_weather_features
 from app.models import Game, Player, Team
 
@@ -96,11 +97,31 @@ _KBO_ROTATION_COLUMNS = [
     "home_sp_recent_whip", "away_sp_recent_whip",
 ]
 
-# KBO: 팀 폼 + 팀 로테이션 ERA + 날씨 + 구장
-KBO_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS
+# 공통 신규 피처 (KBO + MLB)
+_NEW_COMMON_COLUMNS = [
+    # 선발투수 vs 상대팀 전적
+    "home_sp_vs_opp_era", "away_sp_vs_opp_era", "sp_vs_opp_era_diff",
+    "home_sp_vs_opp_win_pct", "away_sp_vs_opp_win_pct",
+    # 최근 5경기 득점 추이
+    "home_avg_runs_scored_L5", "away_avg_runs_scored_L5",
+    "home_avg_runs_allowed_L5", "away_avg_runs_allowed_L5",
+    "home_scoring_trend", "away_scoring_trend",  # hot=1, normal=0, cold=-1
+    # 불펜 실제 등판 피로도
+    "home_bullpen_fatigue", "away_bullpen_fatigue",
+]
 
-# NPB: KBO와 동일 구조 (팀 폼 + 팀 로테이션 ERA + 날씨 + 구장)
-NPB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS
+# MLB 전용 신규 피처
+_MLB_NEW_COLUMNS = [
+    # 타선 vs 선발투수 상대전적
+    "home_lineup_vs_sp_avg_rs", "away_lineup_vs_sp_avg_rs",
+    "home_lineup_vs_sp_win_rate", "away_lineup_vs_sp_win_rate",
+]
+
+# KBO: 팀 폼 + 팀 로테이션 ERA + 날씨 + 구장 + 신규
+KBO_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS + _NEW_COMMON_COLUMNS
+
+# NPB: KBO와 동일 구조
+NPB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _KBO_ROTATION_COLUMNS + _NEW_COMMON_COLUMNS
 
 # MLB 확장 피처: 불펜 + 투구방향 + FIP + 타선스플릿 + 최근폼 (KBO 수준 동등화)
 _MLB_EXTENDED_COLUMNS = [
@@ -129,8 +150,8 @@ _MLB_ADVANCED_COLUMNS = [
     "home_il_impact", "away_il_impact",
 ]
 
-# MLB: 전체 피처 (투수/타자 통계 + 확장 + 고급)
-MLB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _PITCHER_BATTER_COLUMNS + _MLB_EXTENDED_COLUMNS + _MLB_ADVANCED_COLUMNS
+# MLB: 전체 피처 (투수/타자 통계 + 확장 + 고급 + 신규)
+MLB_FEATURE_COLUMNS = _FORM_WEATHER_COLUMNS + _PITCHER_BATTER_COLUMNS + _MLB_EXTENDED_COLUMNS + _MLB_ADVANCED_COLUMNS + _NEW_COMMON_COLUMNS + _MLB_NEW_COLUMNS
 
 # 기본값 (하위 호환)
 FEATURE_COLUMNS = MLB_FEATURE_COLUMNS
@@ -394,6 +415,33 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     ballpark = await get_ballpark_features(db, game)
     elo = await get_elo_features(db, game.home_team_id, game.away_team_id, cutoff_date, league)
 
+    # 신규 피처: 선발투수 vs 상대팀 전적
+    home_sp_vs_opp = await get_pitcher_vs_team_stats(
+        db, game.home_starter_name, game.away_team_id, league, cutoff_date
+    )
+    away_sp_vs_opp = await get_pitcher_vs_team_stats(
+        db, game.away_starter_name, game.home_team_id, league, cutoff_date
+    )
+
+    # 신규 피처: 최근 5경기 득점 추이
+    home_scoring = await get_recent_scoring_trend(db, game.home_team_id, cutoff_date)
+    away_scoring = await get_recent_scoring_trend(db, game.away_team_id, cutoff_date)
+
+    # 신규 피처: 불펜 실제 등판 피로도
+    home_bullpen_fatigue_data = await get_bullpen_recent_appearances(db, game.home_team_id, cutoff_date)
+    away_bullpen_fatigue_data = await get_bullpen_recent_appearances(db, game.away_team_id, cutoff_date)
+
+    # 신규 피처: 타선 vs 선발투수 상대전적 (MLB 전용)
+    home_lineup_vs_sp = {}
+    away_lineup_vs_sp = {}
+    if league == "MLB":
+        home_lineup_vs_sp = await get_batter_vs_pitcher_stats(
+            db, game.home_team_id, game.away_starter_name, league, cutoff_date
+        )
+        away_lineup_vs_sp = await get_batter_vs_pitcher_stats(
+            db, game.away_team_id, game.home_starter_name, league, cutoff_date
+        )
+
     # --- 피처 딕셔너리 조합 ---
     snapshot = {
         # 홈팀 폼
@@ -509,6 +557,36 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "away_il_count": away_il.get("il_count"),
         "home_il_impact": home_il.get("il_impact_score"),
         "away_il_impact": away_il.get("il_impact_score"),
+        # 선발투수 vs 상대팀 전적
+        "home_sp_vs_opp_era": home_sp_vs_opp.get("era"),
+        "away_sp_vs_opp_era": away_sp_vs_opp.get("era"),
+        "sp_vs_opp_era_diff": _safe_diff(home_sp_vs_opp.get("era"), away_sp_vs_opp.get("era")),
+        "home_sp_vs_opp_win_pct": home_sp_vs_opp.get("wins", 0) / max(home_sp_vs_opp.get("games", 1), 1) if home_sp_vs_opp.get("games") else None,
+        "away_sp_vs_opp_win_pct": away_sp_vs_opp.get("wins", 0) / max(away_sp_vs_opp.get("games", 1), 1) if away_sp_vs_opp.get("games") else None,
+        # 선발투수 vs 상대팀 전적 요약 (UI 표시용 — 피처 벡터 외)
+        "home_sp_vs_opp": home_sp_vs_opp or None,
+        "away_sp_vs_opp": away_sp_vs_opp or None,
+        # 최근 5경기 득점 추이
+        "home_avg_runs_scored_L5": home_scoring.get("avg_runs_scored"),
+        "away_avg_runs_scored_L5": away_scoring.get("avg_runs_scored"),
+        "home_avg_runs_allowed_L5": home_scoring.get("avg_runs_allowed"),
+        "away_avg_runs_allowed_L5": away_scoring.get("avg_runs_allowed"),
+        "home_scoring_trend": {"hot": 1, "normal": 0, "cold": -1}.get(home_scoring.get("trend", "normal"), 0),
+        "away_scoring_trend": {"hot": 1, "normal": 0, "cold": -1}.get(away_scoring.get("trend", "normal"), 0),
+        # 득점 추이 상세 (UI 표시용)
+        "home_recent_scores": home_scoring.get("scores"),
+        "away_recent_scores": away_scoring.get("scores"),
+        # 불펜 실제 등판 피로도
+        "home_bullpen_fatigue": home_bullpen_fatigue_data.get("fatigue_score"),
+        "away_bullpen_fatigue": away_bullpen_fatigue_data.get("fatigue_score"),
+        # 타선 vs 선발투수 상대전적 (MLB)
+        "home_lineup_vs_sp_avg_rs": home_lineup_vs_sp.get("avg_runs_scored"),
+        "away_lineup_vs_sp_avg_rs": away_lineup_vs_sp.get("avg_runs_scored"),
+        "home_lineup_vs_sp_win_rate": home_lineup_vs_sp.get("win_rate"),
+        "away_lineup_vs_sp_win_rate": away_lineup_vs_sp.get("win_rate"),
+        # 타선 vs 투수 상세 (UI 표시용)
+        "home_lineup_vs_sp": home_lineup_vs_sp or None,
+        "away_lineup_vs_sp": away_lineup_vs_sp or None,
         # 날씨
         "temperature_c": weather.get("temperature_c"),
         "is_hot": int(weather.get("is_hot", False)),
@@ -649,9 +727,19 @@ async def _get_pitcher_throws(db: AsyncSession, pitcher_id) -> Optional[str]:
 
 LEAKAGE_KEYWORDS = {"score", "winner", "result", "actual", "final", "was_correct"}
 
+# UI 표시용으로만 사용되는 키 (피처 벡터에 포함되지 않으므로 누수 검사 제외)
+_SNAPSHOT_UI_KEYS = {
+    "home_sp_vs_opp", "away_sp_vs_opp",
+    "home_lineup_vs_sp", "away_lineup_vs_sp",
+    "home_recent_scores", "away_recent_scores",
+    "home_sp_era_indiv", "away_sp_era_indiv", "sp_era_indiv_diff",
+}
+
 
 def _assert_no_leakage(snapshot: dict) -> None:
     for key in snapshot.keys():
+        if key in _SNAPSHOT_UI_KEYS:
+            continue
         for kw in LEAKAGE_KEYWORDS:
             if kw in key.lower():
                 raise ValueError(
