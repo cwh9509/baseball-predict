@@ -80,3 +80,11 @@ async def run(target_date: date | None = None, force: bool = False) -> None:
 
         await db.commit()
     logger.info(f"예측 완료: {predicted}경기")
+
+    # 경기 목록 캐시 플러시 (오래된 캐시가 빈 결과를 반환하는 문제 방지)
+    try:
+        from app.core.redis_client import cache_delete
+        for lg in ["KBO", "MLB"]:
+            await cache_delete(f"games:today:{lg}:{today.isoformat()}")
+    except Exception as e:
+        logger.warning(f"캐시 플러시 실패: {e}")

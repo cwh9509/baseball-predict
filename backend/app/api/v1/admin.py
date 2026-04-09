@@ -254,6 +254,12 @@ async def trigger_collect(
             await db.commit()
         logger.info(f"수집+예측 완료: {d} (leagues={leagues}, predicted={predicted})")
 
+        # 캐시 자동 플러시 (수집한 리그 날짜 기준)
+        from app.core.redis_client import cache_delete
+        for lg in leagues:
+            await cache_delete(f"games:today:{lg}:{d.isoformat()}")
+        logger.info(f"캐시 플러시 완료: {leagues} {d}")
+
     _create_background_task(_run())
     return {"status": "started", "date": str(d), "force": force, "league": target_league or "전체"}
 
