@@ -19,7 +19,7 @@ const KBO_TEAM_COLORS: Record<string, { bg: string; text: string }> = {
   한화:  { bg: "#E85D04", text: "#fff" },
   SSG:  { bg: "#CE2029", text: "#fff" },
   롯데:  { bg: "#002561", text: "#fff" },
-  키움:  { bg: "#1A1A1A", text: "#E8001C" },
+  키움:  { bg: "#8B0020", text: "#fff" },
   NC:   { bg: "#315288", text: "#C4A44A" },
   KT:   { bg: "#231F20", text: "#fff" },
 }
