@@ -7,10 +7,18 @@ interface Props {
   league: string
 }
 
+/** KST(UTC+9) 기준 오늘 날짜 */
+function getTodayKST(): string {
+  const now = new Date()
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  return kst.toISOString().slice(0, 10)
+}
+
+/** 날짜 문자열에 days 더하기 (UTC 기준으로 계산, 시간대 무관) */
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  const [y, m, d] = dateStr.split("-").map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d + days))
+  return date.toISOString().slice(0, 10)
 }
 
 export default function DateNavigator({ currentDate, league }: Props) {
@@ -20,7 +28,7 @@ export default function DateNavigator({ currentDate, league }: Props) {
     router.push(`/games?league=${league}&date=${date}`)
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getTodayKST()
   const isToday = currentDate === today
 
   return (

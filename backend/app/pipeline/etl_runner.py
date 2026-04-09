@@ -227,6 +227,7 @@ class ETLRunner:
                 set_={
                     "home_team_id": stmt.excluded.home_team_id,
                     "away_team_id": stmt.excluded.away_team_id,
+                    "game_date": stmt.excluded.game_date,  # KST 날짜로 갱신 허용
                     "venue": stmt.excluded.venue,
                     "status": stmt.excluded.status,
                     "home_score": stmt.excluded.home_score,

@@ -758,11 +758,24 @@ async def fix_mlb_games(
                     if not db_game.external_game_id:
                         vals["external_game_id"] = gid
 
-                    # game_time 재계산 (UTC → KST)
+                    # game_time + game_date 재계산 (UTC → KST, 한국 날짜로 변환)
                     if game_datetime:
+                        try:
+                            from dateutil import tz as _dtz
+                            _dtz_UTC = _dtz.UTC
+                            _dtz_KST = _dtz.gettz("Asia/Seoul")
+                            from datetime import datetime as _dtt
+                            dt_str = game_datetime[:19].rstrip("Z")
+                            dt_utc = _dtt.fromisoformat(dt_str).replace(tzinfo=_dtz_UTC)
+                            dt_kst = dt_utc.astimezone(_dtz_KST)
+                            kst_date = dt_kst.date()
+                            # game_date 업데이트 (ET → KST)
+                            if db_game.game_date != kst_date:
+                                vals["game_date"] = kst_date
+                        except Exception:
+                            pass
                         new_time = _parse_game_time(game_datetime[:16].rstrip("Z"), "MLB")
                         if new_time:
-                            # 기존과 다를 때만 업데이트 (분 단위 비교)
                             old_str = str(db_game.game_time or "")[:5]
                             new_str = str(new_time)[:5]
                             if old_str != new_str:

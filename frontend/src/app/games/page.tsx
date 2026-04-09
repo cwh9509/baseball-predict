@@ -15,7 +15,12 @@ interface PageProps {
 export default async function GamesPage({ searchParams }: PageProps) {
   const league = searchParams.league === "MLB" ? "MLB" : "KBO"
   const date = searchParams.date
-  const today = date ?? new Date().toISOString().slice(0, 10)
+  // KST(UTC+9) 기준 오늘 날짜 사용 — toISOString()은 UTC 반환이라 한국 자정 전엔 하루 전 날짜가 나옴
+  const today = date ?? (() => {
+    const now = new Date()
+    const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    return kst.toISOString().slice(0, 10)
+  })()
 
   let data
   try {

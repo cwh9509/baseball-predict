@@ -197,11 +197,26 @@ class PybaseballCollector(BaseCollector):
             if isinstance(away_pitcher_name, str) and not away_pitcher_name.strip():
                 away_pitcher_name = None
 
+            # game_datetime(UTC)을 KST로 변환하여 한국 날짜로 저장
+            game_datetime_str = str(row.get("game_datetime", ""))
+            kst_date = target_date  # 기본값
+            if game_datetime_str and "T" in game_datetime_str:
+                try:
+                    from dateutil import tz as _dateutil_tz
+                    _dtz_UTC = _dateutil_tz.UTC
+                    _dtz_KST = _dateutil_tz.gettz("Asia/Seoul")
+                    from datetime import datetime as _dt
+                    dt_str = game_datetime_str[:19].rstrip("Z")
+                    dt_utc = _dt.fromisoformat(dt_str).replace(tzinfo=_dtz_UTC)
+                    kst_date = dt_utc.astimezone(_dtz_KST).date()
+                except Exception:
+                    pass
+
             games.append(
                 GameRaw(
                     external_game_id=str(row.get("game_id", "")),
                     league="MLB",
-                    game_date=target_date,
+                    game_date=kst_date,  # KST 날짜로 저장 (한국 사용자 기준)
                     home_team_short=home_short,
                     away_team_short=away_short,
                     venue=row.get("venue_name", ""),
