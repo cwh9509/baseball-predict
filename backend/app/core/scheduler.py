@@ -135,7 +135,16 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (11개 작업)")
+    # KBO 당일 결과 수집 (ET 10:00 = KST 23:00) — KBO 경기 거의 종료 시점
+    scheduler.add_job(
+        _run_kbo_results_collect,
+        trigger=CronTrigger(hour=10, minute=0, timezone=settings.scheduler_timezone),
+        id="kbo_results_collect",
+        name="KBO 당일 결과 수집 (KST 23:00)",
+        replace_existing=True,
+    )
+
+    logger.info("스케줄러 작업 등록 완료 (12개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -258,3 +267,24 @@ async def _run_mlb_results_collect() -> None:
         logger.info(f"MLB 당일 결과 수집 완료 (ET {today_et})")
     except Exception as e:
         logger.error(f"mlb_results_collect 실패: {e}", exc_info=True)
+
+
+async def _run_kbo_results_collect() -> None:
+    """ET 10:00 (= KST 23:00) — KBO 당일 경기 결과 수집 + was_correct 업데이트"""
+    try:
+        from datetime import date, timedelta
+        from app.pipeline.etl_runner import ETLRunner
+        from app.core.redis_client import cache_delete
+
+        # ET 10:00 = KST 23:00 → KBO 경기 날짜는 KST 기준 (오늘 = ET 어제)
+        today_et = date.today()
+        kst_date = today_et + timedelta(days=1)  # KST는 ET+1일
+        logger.info(f"KBO 당일 결과 수집 시작 (KST {kst_date})")
+
+        runner = ETLRunner(league="KBO")
+        await runner.run_results(kst_date)
+
+        await cache_delete(f"games:today:KBO:{kst_date.isoformat()}")
+        logger.info(f"KBO 당일 결과 수집 완료 (KST {kst_date})")
+    except Exception as e:
+        logger.error(f"kbo_results_collect 실패: {e}", exc_info=True)

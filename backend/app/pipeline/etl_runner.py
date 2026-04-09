@@ -182,6 +182,9 @@ class ETLRunner:
                             {"winner_id": game.winner_team_id, "game_id": game.id},
                         )
             await db.commit()
+            # Elo 캐시 무효화: 새 결과가 반영됐으므로 다음 예측 시 재빌드
+            from app.features.elo_features import invalidate_elo_cache
+            invalidate_elo_cache(self.league)
 
     async def _ensure_teams(self, db: AsyncSession) -> None:
         """팀이 DB에 없으면 삽입 (최초 실행 시)"""
