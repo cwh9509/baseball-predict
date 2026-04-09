@@ -227,13 +227,19 @@ class ETLRunner:
             )
 
             stmt = pg_insert(Game).values(**values)
+            # MLB만 game_date 갱신 허용 (ET→KST 변환 필요)
+            # KBO/NPB는 game_date 덮어쓰기 금지 (잘못된 날짜로 교체되는 버그 방지)
+            game_date_set = (
+                stmt.excluded.game_date if raw.league == "MLB"
+                else func.coalesce(Game.game_date, stmt.excluded.game_date)
+            )
             stmt = stmt.on_conflict_do_update(
                 index_elements=["league", "external_game_id"],
                 index_where=text("external_game_id IS NOT NULL"),
                 set_={
                     "home_team_id": stmt.excluded.home_team_id,
                     "away_team_id": stmt.excluded.away_team_id,
-                    "game_date": stmt.excluded.game_date,  # KST 날짜로 갱신 허용
+                    "game_date": game_date_set,
                     "venue": stmt.excluded.venue,
                     "status": stmt.excluded.status,
                     "home_score": stmt.excluded.home_score,
