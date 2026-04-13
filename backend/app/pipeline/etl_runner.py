@@ -121,7 +121,21 @@ class ETLRunner:
     async def run_results(self, target_date: date) -> None:
         """경기 결과 업데이트 (전날 결과 수집 용도)"""
         async with AsyncSessionLocal() as db:
-            games_raw = await self.collector.fetch_game_results(target_date)
+            # MLB: DB는 KST 날짜, API는 ET 날짜 기준 → KST 날짜 경기가 ET 기준 전날에 속할 수 있으므로
+            # target_date 와 target_date-1 두 날짜를 모두 조회해서 합침
+            if self.league == "MLB":
+                prev_raw = await self.collector.fetch_game_results(target_date - timedelta(days=1))
+                curr_raw = await self.collector.fetch_game_results(target_date)
+                # external_game_id 기준 중복 제거
+                seen: set[str] = set()
+                games_raw = []
+                for r in list(prev_raw) + list(curr_raw):
+                    key = r.external_game_id or f"{r.home_team_short}_{r.away_team_short}_{r.game_date}"
+                    if key not in seen:
+                        seen.add(key)
+                        games_raw.append(r)
+            else:
+                games_raw = await self.collector.fetch_game_results(target_date)
             for raw in games_raw:
                 if raw.status != "final":
                     continue
