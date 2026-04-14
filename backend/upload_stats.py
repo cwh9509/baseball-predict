@@ -160,7 +160,7 @@ def scrape_pitchers(client: httpx.Client, season: int) -> list[dict]:
     soup = BeautifulSoup(resp.text, "lxml")
     table = soup.find("table")
     if not table:
-        logger.warning(f"투수 테이블 없음 ({season})")
+        logger.warning(f"투수 테이블 없음 ({season}) — status={resp.status_code} url={url} body_snippet={resp.text[:300]!r}")
         return []
 
     rows = table.find_all("tr")
