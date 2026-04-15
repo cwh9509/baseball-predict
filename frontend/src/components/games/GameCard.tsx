@@ -49,22 +49,58 @@ export default function GameCard({ game, currentDate, league }: Props) {
           </div>
         </div>
 
-        {/* 승률 바 (홈 왼쪽) */}
-        {game.prediction && (
-          <WinProbabilityBar
-            homeProb={game.prediction.home_win_prob}
-            homeTeam={homeShort}
-            awayTeam={awayShort}
-          />
-        )}
-
-        {/* 예상 스코어 (원정 – 홈) */}
-        {game.prediction?.predicted_home_score != null && game.prediction?.predicted_away_score != null && (
-          <div className="flex justify-center mt-2 mb-1">
-            <span className="text-sm font-semibold text-gray-600 bg-gray-50 px-3 py-0.5 rounded-full border">
-              예상 {game.prediction.predicted_away_score} – {game.prediction.predicted_home_score}
-            </span>
+        {/* 종료된 경기: 실제 결과 */}
+        {game.status === "final" && game.home_score != null && game.away_score != null ? (
+          <div className={cn(
+            "rounded-lg px-3 py-2 mb-2 text-center",
+            game.prediction?.was_correct === true ? "bg-green-50 border border-green-200" :
+            game.prediction?.was_correct === false ? "bg-red-50 border border-red-200" :
+            "bg-gray-50 border border-gray-200"
+          )}>
+            <div className="flex items-center justify-center gap-3">
+              <div className="text-center">
+                <div className="text-xl font-bold">{game.away_score}</div>
+                <div className="text-xs text-red-400">원정</div>
+              </div>
+              <span className="text-gray-400">–</span>
+              <div className="text-center">
+                <div className="text-xl font-bold">{game.home_score}</div>
+                <div className="text-xs text-blue-500">홈</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              {game.actual_winner && (
+                <span className="text-xs text-gray-600 font-medium">{game.actual_winner} 승</span>
+              )}
+              {game.prediction?.was_correct != null && (
+                <span className={cn(
+                  "text-xs px-1.5 py-0.5 rounded-full font-medium",
+                  game.prediction.was_correct ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                )}>
+                  {game.prediction.was_correct ? "적중" : "실패"}
+                </span>
+              )}
+            </div>
           </div>
+        ) : (
+          <>
+            {/* 진행 중/예정: 승률 바 */}
+            {game.prediction && (
+              <WinProbabilityBar
+                homeProb={game.prediction.home_win_prob}
+                homeTeam={homeShort}
+                awayTeam={awayShort}
+              />
+            )}
+            {/* 예상 스코어 */}
+            {game.prediction?.predicted_home_score != null && game.prediction?.predicted_away_score != null && (
+              <div className="flex justify-center mt-2 mb-1">
+                <span className="text-sm font-semibold text-gray-600 bg-gray-50 px-3 py-0.5 rounded-full border">
+                  예상 {game.prediction.predicted_away_score} – {game.prediction.predicted_home_score}
+                </span>
+              </div>
+            )}
+          </>
         )}
 
         {/* 하단 정보 */}

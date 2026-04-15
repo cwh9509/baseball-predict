@@ -25,6 +25,7 @@ export interface PredictionBrief {
   has_explanation: boolean
   predicted_home_score?: number
   predicted_away_score?: number
+  was_correct?: boolean | null
 }
 
 export interface Game {
@@ -40,6 +41,9 @@ export interface Game {
   lineup_locked?: boolean
   prediction?: PredictionBrief
   weather?: WeatherBrief
+  home_score?: number | null
+  away_score?: number | null
+  actual_winner?: string | null
 }
 
 export interface GamesListResponse {

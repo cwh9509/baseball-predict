@@ -67,6 +67,7 @@ async def get_games_today(
                 has_explanation=pred.llm_explanation is not None,
                 predicted_home_score=int(pred.predicted_home_score) if pred.predicted_home_score is not None else None,
                 predicted_away_score=int(pred.predicted_away_score) if pred.predicted_away_score is not None else None,
+                was_correct=pred.was_correct,
             )
 
         # 날씨 요약
@@ -87,6 +88,7 @@ async def get_games_today(
                 is_raining=precip > 0.5,
             )
 
+        actual_winner_team = await _get_team(db, game.winner_team_id) if game.winner_team_id else None
         game_responses.append(
             GameResponse(
                 id=game.id,
@@ -101,6 +103,9 @@ async def get_games_today(
                 lineup_locked=bool(game.lineup_locked),
                 prediction=pred_brief,
                 weather=weather_brief,
+                home_score=game.home_score,
+                away_score=game.away_score,
+                actual_winner=actual_winner_team.name if actual_winner_team else None,
             )
         )
 

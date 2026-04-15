@@ -36,6 +36,7 @@ class PredictionBrief(BaseModel):
     has_explanation: bool
     predicted_home_score: Optional[int] = None
     predicted_away_score: Optional[int] = None
+    was_correct: Optional[bool] = None
 
 
 class GameResponse(BaseModel):
@@ -51,6 +52,9 @@ class GameResponse(BaseModel):
     lineup_locked: bool = False
     prediction: Optional[PredictionBrief] = None
     weather: Optional[WeatherBrief] = None
+    home_score: Optional[int] = None
+    away_score: Optional[int] = None
+    actual_winner: Optional[str] = None
 
 
 class GamesListResponse(BaseModel):
