@@ -55,6 +55,14 @@ async def get_kbo_starter_stats(
                 row = (await db.execute(select(KboPitcherStat).where(extra_cond))).scalar_one_or_none()
                 if row:
                     return {"era": row.era, "whip": row.whip, "k9": row.k9}
+        logger.warning(f"[KBO pitcher] 스탯 없음: name={name!r} team={team_short!r} season={season} → 임시값 사용")
+        # 이름이 유사한 투수 확인 (디버그용)
+        similar = (await db.execute(
+            select(KboPitcherStat.name, KboPitcherStat.team_short, KboPitcherStat.season)
+            .where(KboPitcherStat.season.in_([season, season - 1]))
+            .limit(5)
+        )).all()
+        logger.warning(f"[KBO pitcher] DB 샘플: {[(r.name, r.team_short, r.season) for r in similar]}")
     return None
 
 
