@@ -456,11 +456,13 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
         updates["away_lineup_json"] = away_lineup
         changed = True
 
-    # 라인업 확정 — 양쪽 선발투수 확정되고, preview가 아닌 실제 소스일 때만 locked
+    # 라인업 확정 — 실제 타순(9명)이 양쪽 모두 있을 때만 locked
+    # 선발투수만 있는 경우(preview)는 locked 안 함 → 경기 시작 후 타순 수집 계속
     confirmed = lineup.get("confirmed", True)
     final_home_starter = home_starter or game.home_starter_name
     final_away_starter = away_starter or game.away_starter_name
-    if confirmed and final_home_starter and final_away_starter and not game.lineup_locked:
+    has_full_batting_order = len(home_lineup) >= 9 and len(away_lineup) >= 9
+    if confirmed and final_home_starter and final_away_starter and has_full_batting_order and not game.lineup_locked:
         updates["lineup_locked"] = True
         updates["lineup_locked_at"] = now
         changed = True  # 라인업 확정 자체도 재예측 트리거

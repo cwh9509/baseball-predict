@@ -131,6 +131,42 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
               </p>
             </div>
 
+            {/* 실제 결과 (경기 종료 후) */}
+            {prediction.status === "final" && prediction.actual_home_score != null && prediction.actual_away_score != null && (
+              <div className={cn(
+                "mt-4 rounded-lg p-3 border",
+                prediction.was_correct === true ? "bg-green-50 border-green-200" :
+                prediction.was_correct === false ? "bg-red-50 border-red-200" :
+                "bg-gray-50 border-gray-200"
+              )}>
+                <p className="text-center text-xs text-gray-500 mb-2">실제 결과</p>
+                <div className="flex items-center justify-center gap-3 text-2xl font-bold">
+                  <div className="text-center">
+                    <div>{prediction.actual_away_score}</div>
+                    <div className="text-xs text-red-400 font-normal">원정</div>
+                  </div>
+                  <span className="text-gray-400 text-lg">–</span>
+                  <div className="text-center">
+                    <div>{prediction.actual_home_score}</div>
+                    <div className="text-xs text-blue-500 font-normal">홈</div>
+                  </div>
+                </div>
+                {prediction.actual_winner && (
+                  <p className="text-center text-sm mt-2">
+                    <span className="font-semibold">{prediction.actual_winner.name}</span> 승
+                    {prediction.was_correct != null && (
+                      <span className={cn(
+                        "ml-2 px-2 py-0.5 rounded-full text-xs font-medium",
+                        prediction.was_correct ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      )}>
+                        {prediction.was_correct ? "예측 적중" : "예측 실패"}
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="text-xs text-gray-400 text-center mt-2">
               모델: {prediction.model_version} · {new Date(prediction.predicted_at).toLocaleString("ko-KR")}
             </div>

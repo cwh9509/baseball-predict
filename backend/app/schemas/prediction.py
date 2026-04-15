@@ -43,6 +43,12 @@ class PredictionDetailResponse(BaseModel):
     feature_snapshot: dict
     predicted_home_score: Optional[int] = None
     predicted_away_score: Optional[int] = None
+    # 실제 결과 (경기 종료 후)
+    status: Optional[str] = None
+    actual_home_score: Optional[int] = None
+    actual_away_score: Optional[int] = None
+    actual_winner: Optional[dict] = None   # {id, name}
+    was_correct: Optional[bool] = None
     explanation: Optional[ExplanationSchema] = None
     lineup: Optional[LineupSchema] = None
     home_recent_results: list[bool] = []

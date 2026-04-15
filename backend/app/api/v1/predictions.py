@@ -46,6 +46,11 @@ async def get_prediction(
     winner_result = await db.execute(select(Team).where(Team.id == pred.predicted_winner_id))
     winner = winner_result.scalar_one_or_none()
 
+    actual_winner = None
+    if game.winner_team_id:
+        actual_winner_result = await db.execute(select(Team).where(Team.id == game.winner_team_id))
+        actual_winner = actual_winner_result.scalar_one_or_none()
+
     home_result = await db.execute(select(Team).where(Team.id == game.home_team_id))
     home_team = home_result.scalar_one_or_none()
     away_result = await db.execute(select(Team).where(Team.id == game.away_team_id))
@@ -98,6 +103,11 @@ async def get_prediction(
         feature_snapshot=pred.feature_snapshot or {},
         predicted_home_score=int(pred.predicted_home_score) if pred.predicted_home_score is not None else None,
         predicted_away_score=int(pred.predicted_away_score) if pred.predicted_away_score is not None else None,
+        status=game.status,
+        actual_home_score=game.home_score,
+        actual_away_score=game.away_score,
+        actual_winner={"id": actual_winner.id, "name": actual_winner.name} if actual_winner else None,
+        was_correct=pred.was_correct,
         explanation=explanation,
         lineup=lineup,
         home_recent_results=home_recent,

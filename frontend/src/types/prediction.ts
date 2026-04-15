@@ -92,6 +92,11 @@ export interface PredictionDetail {
   feature_snapshot: FeatureSnapshot
   predicted_home_score?: number
   predicted_away_score?: number
+  status?: string
+  actual_home_score?: number | null
+  actual_away_score?: number | null
+  actual_winner?: { id: number; name: string } | null
+  was_correct?: boolean | null
   explanation?: Explanation
   lineup?: Lineup
   home_recent_results?: boolean[]

@@ -23,14 +23,24 @@ scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
 def setup_scheduler() -> None:
     """스케줄 작업 등록"""
 
-    # 전날 결과 수집 (매일 오전 6시)
+    # 전날 결과 수집 (매일 오전 6시 ET = KST 19시)
     scheduler.add_job(
         _run_daily_data_pull,
         trigger=CronTrigger(hour=6, minute=0, timezone=settings.scheduler_timezone),
         id="daily_data_pull",
         name="전날 경기 결과 수집",
         replace_existing=True,
-        misfire_grace_time=3600,  # 1시간 내 실행 놓쳐도 실행
+        misfire_grace_time=3600,
+    )
+
+    # 전날 결과 수집 추가 실행 (ET 22:00 = KST 11:00) — KST 오전에 히스토리 확인 가능하게
+    scheduler.add_job(
+        _run_daily_data_pull,
+        trigger=CronTrigger(hour=22, minute=0, timezone=settings.scheduler_timezone),
+        id="daily_data_pull_morning",
+        name="전날 경기 결과 수집 (KST 11:00)",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
 
     # 당일 예측 실행 (매일 오전 8시)
@@ -144,7 +154,7 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (12개 작업)")
+    logger.info("스케줄러 작업 등록 완료 (13개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
