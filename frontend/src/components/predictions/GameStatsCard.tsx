@@ -308,7 +308,7 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
             <div key={prefix}>
               <div className="flex items-center gap-2 mb-2">
                 <p className={`text-xs font-medium ${color}`}>{label}</p>
-                <ScoringTrendBadge trend={(s as any)[`${prefix}_scoring_trend`]} />
+                <ScoringTrendBadge trend={(s as any)[`${prefix}_offense_trend`]} />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -328,7 +328,7 @@ export default function GameStatsCard({ prediction, homeTeamName, awayTeamName, 
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">평균 득점</span>
                   <span className="text-xs font-medium text-gray-700">
-                    {(s as any)[`${prefix}_avg_runs_scored_L5`] != null ? Number((s as any)[`${prefix}_avg_runs_scored_L5`]).toFixed(1) + "점" : "-"}
+                    {(s as any)[`${prefix}_avg_runs_off_L5`] != null ? Number((s as any)[`${prefix}_avg_runs_off_L5`]).toFixed(1) + "점" : "-"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

@@ -103,9 +103,9 @@ _NEW_COMMON_COLUMNS = [
     "home_sp_vs_opp_era", "away_sp_vs_opp_era", "sp_vs_opp_era_diff",
     "home_sp_vs_opp_win_pct", "away_sp_vs_opp_win_pct",
     # 최근 5경기 득점 추이
-    "home_avg_runs_scored_L5", "away_avg_runs_scored_L5",
+    "home_avg_runs_off_L5", "away_avg_runs_off_L5",
     "home_avg_runs_allowed_L5", "away_avg_runs_allowed_L5",
-    "home_scoring_trend", "away_scoring_trend",  # hot=1, normal=0, cold=-1
+    "home_offense_trend", "away_offense_trend",  # hot=1, normal=0, cold=-1
     # 불펜 실제 등판 피로도
     "home_bullpen_fatigue", "away_bullpen_fatigue",
 ]
@@ -113,7 +113,7 @@ _NEW_COMMON_COLUMNS = [
 # MLB 전용 신규 피처
 _MLB_NEW_COLUMNS = [
     # 타선 vs 선발투수 상대전적
-    "home_lineup_vs_sp_avg_rs", "away_lineup_vs_sp_avg_rs",
+    "home_lineup_vs_sp_avg_runs", "away_lineup_vs_sp_avg_runs",
     "home_lineup_vs_sp_win_rate", "away_lineup_vs_sp_win_rate",
 ]
 
@@ -567,12 +567,12 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "home_sp_vs_opp": home_sp_vs_opp or None,
         "away_sp_vs_opp": away_sp_vs_opp or None,
         # 최근 5경기 득점 추이
-        "home_avg_runs_scored_L5": home_scoring.get("avg_runs_scored"),
-        "away_avg_runs_scored_L5": away_scoring.get("avg_runs_scored"),
+        "home_avg_runs_off_L5": home_scoring.get("avg_runs_scored"),
+        "away_avg_runs_off_L5": away_scoring.get("avg_runs_scored"),
         "home_avg_runs_allowed_L5": home_scoring.get("avg_runs_allowed"),
         "away_avg_runs_allowed_L5": away_scoring.get("avg_runs_allowed"),
-        "home_scoring_trend": {"hot": 1, "normal": 0, "cold": -1}.get(home_scoring.get("trend", "normal"), 0),
-        "away_scoring_trend": {"hot": 1, "normal": 0, "cold": -1}.get(away_scoring.get("trend", "normal"), 0),
+        "home_offense_trend": {"hot": 1, "normal": 0, "cold": -1}.get(home_scoring.get("trend", "normal"), 0),
+        "away_offense_trend": {"hot": 1, "normal": 0, "cold": -1}.get(away_scoring.get("trend", "normal"), 0),
         # 득점 추이 상세 (UI 표시용)
         "home_recent_scores": home_scoring.get("scores"),
         "away_recent_scores": away_scoring.get("scores"),
@@ -580,8 +580,8 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         "home_bullpen_fatigue": home_bullpen_fatigue_data.get("fatigue_score"),
         "away_bullpen_fatigue": away_bullpen_fatigue_data.get("fatigue_score"),
         # 타선 vs 선발투수 상대전적 (MLB)
-        "home_lineup_vs_sp_avg_rs": home_lineup_vs_sp.get("avg_runs_scored"),
-        "away_lineup_vs_sp_avg_rs": away_lineup_vs_sp.get("avg_runs_scored"),
+        "home_lineup_vs_sp_avg_runs": home_lineup_vs_sp.get("avg_runs_scored"),
+        "away_lineup_vs_sp_avg_runs": away_lineup_vs_sp.get("avg_runs_scored"),
         "home_lineup_vs_sp_win_rate": home_lineup_vs_sp.get("win_rate"),
         "away_lineup_vs_sp_win_rate": away_lineup_vs_sp.get("win_rate"),
         # 타선 vs 투수 상세 (UI 표시용)
