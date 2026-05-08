@@ -24,7 +24,7 @@ from app.ml.model_registry import save_xgb_model, save_lgb_model, save_cat_model
 
 logger = logging.getLogger(__name__)
 
-N_OPTUNA_TRIALS = 100   # 튜닝 시도 횟수 (늘릴수록 정확하지만 느림)
+N_OPTUNA_TRIALS = 30    # 튜닝 시도 횟수 (데이터 적을 땐 낮게 유지해 과적합 방지)
 N_CV_SPLITS = 5
 
 
@@ -108,15 +108,15 @@ class Trainer:
 
         def objective(trial):
             params = {
-                "n_estimators":      trial.suggest_int("n_estimators", 200, 800),
-                "max_depth":         trial.suggest_int("max_depth", 3, 8),
-                "learning_rate":     trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-                "subsample":         trial.suggest_float("subsample", 0.6, 1.0),
-                "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.5, 1.0),
-                "min_child_weight":  trial.suggest_int("min_child_weight", 1, 10),
-                "gamma":             trial.suggest_float("gamma", 0.0, 0.5),
-                "reg_alpha":         trial.suggest_float("reg_alpha", 0.0, 1.0),
-                "reg_lambda":        trial.suggest_float("reg_lambda", 0.5, 2.0),
+                "n_estimators":      trial.suggest_int("n_estimators", 100, 400),
+                "max_depth":         trial.suggest_int("max_depth", 2, 5),   # 얕게 제한
+                "learning_rate":     trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+                "subsample":         trial.suggest_float("subsample", 0.6, 0.9),
+                "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.5, 0.8),
+                "min_child_weight":  trial.suggest_int("min_child_weight", 3, 15),  # 높게 제한
+                "gamma":             trial.suggest_float("gamma", 0.1, 1.0),        # 정규화 강화
+                "reg_alpha":         trial.suggest_float("reg_alpha", 0.1, 2.0),
+                "reg_lambda":        trial.suggest_float("reg_lambda", 1.0, 5.0),
             }
             model = xgb.XGBClassifier(
                 **params, eval_metric="logloss", random_state=42, n_jobs=-1
@@ -147,15 +147,15 @@ class Trainer:
 
         def objective(trial):
             params = {
-                "n_estimators":       trial.suggest_int("n_estimators", 200, 800),
-                "max_depth":          trial.suggest_int("max_depth", 3, 8),
-                "learning_rate":      trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-                "num_leaves":         trial.suggest_int("num_leaves", 20, 127),
-                "subsample":          trial.suggest_float("subsample", 0.6, 1.0),
-                "colsample_bytree":   trial.suggest_float("colsample_bytree", 0.5, 1.0),
-                "min_child_samples":  trial.suggest_int("min_child_samples", 10, 50),
-                "reg_alpha":          trial.suggest_float("reg_alpha", 0.0, 1.0),
-                "reg_lambda":         trial.suggest_float("reg_lambda", 0.0, 2.0),
+                "n_estimators":       trial.suggest_int("n_estimators", 100, 400),
+                "max_depth":          trial.suggest_int("max_depth", 2, 5),
+                "learning_rate":      trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+                "num_leaves":         trial.suggest_int("num_leaves", 8, 31),
+                "subsample":          trial.suggest_float("subsample", 0.6, 0.9),
+                "colsample_bytree":   trial.suggest_float("colsample_bytree", 0.5, 0.8),
+                "min_child_samples":  trial.suggest_int("min_child_samples", 20, 80),
+                "reg_alpha":          trial.suggest_float("reg_alpha", 0.1, 2.0),
+                "reg_lambda":         trial.suggest_float("reg_lambda", 0.5, 5.0),
             }
             model = lgb.LGBMClassifier(**params, random_state=42, verbose=-1, n_jobs=-1)
             scores = cross_val_score(model, X, y, cv=tscv, scoring="accuracy")
@@ -182,12 +182,12 @@ class Trainer:
 
         def objective(trial):
             params = {
-                "iterations":           trial.suggest_int("iterations", 200, 800),
-                "depth":                trial.suggest_int("depth", 4, 10),
-                "learning_rate":        trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
-                "l2_leaf_reg":          trial.suggest_float("l2_leaf_reg", 1.0, 10.0, log=True),
+                "iterations":           trial.suggest_int("iterations", 100, 400),
+                "depth":                trial.suggest_int("depth", 3, 6),
+                "learning_rate":        trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+                "l2_leaf_reg":          trial.suggest_float("l2_leaf_reg", 3.0, 20.0, log=True),
                 "bagging_temperature":  trial.suggest_float("bagging_temperature", 0.0, 1.0),
-                "border_count":         trial.suggest_int("border_count", 32, 255),
+                "border_count":         trial.suggest_int("border_count", 32, 128),
             }
             scores = []
             for train_idx, val_idx in tscv.split(X):
