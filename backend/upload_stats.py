@@ -189,7 +189,13 @@ def scrape_pitchers(client: httpx.Client, season: int) -> list[dict]:
         if len(cells) < max(i_era, i_whip) + 1:
             continue
         try:
-            name = cells[i_name]
+            raw_name_cell = raw_cells[i_name] if i_name < len(raw_cells) else None
+            # 이름 셀에서 링크 텍스트만 추출 (배지/아이콘 텍스트 제외)
+            if raw_name_cell:
+                link = raw_name_cell.find("a")
+                name = link.get_text(strip=True) if link else cells[i_name]
+            else:
+                name = cells[i_name]
             team_short = get_team_short(raw_cells, i_team, cells[i_team] if i_team < len(cells) else "")
             if not team_short or not name:
                 continue
@@ -239,6 +245,8 @@ def scrape_pitchers(client: httpx.Client, season: int) -> list[dict]:
             continue
 
     logger.info(f"투수 {len(results)}명 수집 ({season})")
+    if results:
+        logger.info(f"투수 샘플 (첫 5명): {[(p['name'], p['team_short']) for p in results[:5]]}")
     return results
 
 
@@ -281,7 +289,12 @@ def scrape_recent_pitcher_stats(client: httpx.Client, season: int, days: int = 1
         if len(cells) < max(i_era, i_whip) + 1:
             continue
         try:
-            name = cells[i_name]
+            raw_name_cell = raw_cells[i_name] if i_name < len(raw_cells) else None
+            if raw_name_cell:
+                link = raw_name_cell.find("a")
+                name = link.get_text(strip=True) if link else cells[i_name]
+            else:
+                name = cells[i_name]
             team_short = get_team_short(raw_cells, i_team, cells[i_team] if i_team < len(cells) else "")
             if not name or not team_short:
                 continue

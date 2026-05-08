@@ -56,13 +56,31 @@ async def get_kbo_starter_stats(
                 if row:
                     return {"era": row.era, "whip": row.whip, "k9": row.k9}
         logger.warning(f"[KBO pitcher] 스탯 없음: name={name!r} team={team_short!r} season={season} → 임시값 사용")
-        # 이름이 유사한 투수 확인 (디버그용)
-        similar = (await db.execute(
+        # 같은 팀 투수 목록 출력 (정확한 이름 불일치 파악용)
+        team_pitchers = (await db.execute(
             select(KboPitcherStat.name, KboPitcherStat.team_short, KboPitcherStat.season)
-            .where(KboPitcherStat.season.in_([season, season - 1]))
-            .limit(5)
+            .where(
+                KboPitcherStat.team_short == team_short,
+                KboPitcherStat.season.in_([season, season - 1]),
+            )
+            .limit(20)
         )).all()
-        logger.warning(f"[KBO pitcher] DB 샘플: {[(r.name, r.team_short, r.season) for r in similar]}")
+        logger.warning(f"[KBO pitcher] 같은 팀({team_short}) DB 목록: {[(r.name, r.season) for r in team_pitchers]}")
+
+        # 유니코드 정규화 후 재시도 (NFC ↔ NFD 불일치 대응)
+        import unicodedata
+        norm_name = unicodedata.normalize("NFC", name)
+        if norm_name != name:
+            for s in [season, season - 1]:
+                row = (await db.execute(
+                    select(KboPitcherStat).where(
+                        KboPitcherStat.name == norm_name,
+                        KboPitcherStat.season == s,
+                    )
+                )).scalar_one_or_none()
+                if row:
+                    logger.info(f"[KBO pitcher] NFC 정규화로 매칭 성공: {name!r} → {norm_name!r}")
+                    return {"era": row.era, "whip": row.whip, "k9": row.k9}
     return None
 
 

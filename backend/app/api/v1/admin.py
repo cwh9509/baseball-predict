@@ -928,6 +928,33 @@ async def debug_games(
     return {"date": target_date, "count": len(result), "games": result}
 
 
+@router.get("/debug/pitcher-stats")
+async def debug_pitcher_stats(
+    team: str = Query(default=None, description="팀 단축명 (예: 키움, KT)"),
+    season: int = Query(default=2026),
+    league: str = Query(default="KBO", description="KBO 또는 MLB"),
+    db: AsyncSession = Depends(get_db),
+):
+    """DB에 저장된 투수 스탯 조회 (이름 불일치 진단용)"""
+    from sqlalchemy import select, and_
+    if league.upper() == "MLB":
+        from app.models.mlb_stats import MlbPitcherStat as StatModel
+        cond = [StatModel.season == season]
+        if team:
+            cond.append(StatModel.team_short == team)
+        rows = (await db.execute(select(StatModel).where(and_(*cond)).order_by(StatModel.team_short, StatModel.ip.desc()))).scalars().all()
+        return {"league": "MLB", "season": season, "team": team, "count": len(rows),
+                "pitchers": [{"name": r.name, "team": r.team_short, "era": r.era, "ip": r.ip, "handedness": r.handedness} for r in rows]}
+    else:
+        from app.models.kbo_stats import KboPitcherStat as StatModel
+        cond = [StatModel.season == season]
+        if team:
+            cond.append(StatModel.team_short == team)
+        rows = (await db.execute(select(StatModel).where(and_(*cond)).order_by(StatModel.team_short, StatModel.ip.desc()))).scalars().all()
+        return {"league": "KBO", "season": season, "team": team, "count": len(rows),
+                "pitchers": [{"name": r.name, "team": r.team_short, "era": r.era, "ip": r.ip, "handedness": r.handedness} for r in rows]}
+
+
 @router.post("/cache/flush")
 async def flush_cache(pattern: str = Query(default="games:*", description="삭제할 캐시 키 패턴")):
     """Redis 캐시 삭제 (기본: games:* 전체)"""
