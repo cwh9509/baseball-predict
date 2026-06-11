@@ -11,8 +11,10 @@ MLB 시즌 스탯 수집기 — pybaseball(FanGraphs) 기반
                 실측 실패 시 팀 OPS 기반 보정값 저장
 """
 import asyncio
+import json
 import logging
 import os
+import time
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -45,6 +47,18 @@ _FG_TEAM_NAME_MAP: dict[str, str] = {
     "Mariners": "SEA", "Cardinals": "STL", "Rays": "TB", "Rangers": "TEX",
     "Blue Jays": "TOR", "Nationals": "WSH",
 }
+
+# 내부 약자 → MLB StatsAPI team ID
+_TEAM_MLBAM_IDS: dict[str, int] = {
+    "ARI": 109, "ATL": 144, "BAL": 110, "BOS": 111, "CHC": 112,
+    "CWS": 145, "CIN": 113, "CLE": 114, "COL": 115, "DET": 116,
+    "HOU": 117, "KC": 118, "LAA": 108, "LAD": 119, "MIA": 146,
+    "MIL": 158, "MIN": 142, "NYM": 121, "NYY": 147, "OAK": 133,
+    "PHI": 143, "PIT": 134, "SD": 135, "SF": 137, "SEA": 136,
+    "STL": 138, "TB": 139, "TEX": 140, "TOR": 141, "WSH": 120,
+}
+
+_STATSAPI_CACHE_TTL = 24 * 3600
 
 
 def _normalize_team(team_raw: str) -> str:
@@ -87,6 +101,69 @@ def _save_cache(df: pd.DataFrame, key: str) -> None:
         df.to_parquet(_cache_path(key), index=False)
     except Exception as e:
         logger.warning(f"캐시 저장 실패 ({key}): {e}")
+
+
+def _json_cache_path(key: str) -> Path:
+    return CACHE_DIR / f"{key}.json"
+
+
+def _load_json_cache(key: str, ttl_sec: Optional[int] = _STATSAPI_CACHE_TTL) -> Optional[list]:
+    p = _json_cache_path(key)
+    if not p.exists():
+        return None
+    if ttl_sec is not None and (time.time() - p.stat().st_mtime) > ttl_sec:
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        p.unlink(missing_ok=True)
+        return None
+
+
+def _save_json_cache(key: str, data: list) -> None:
+    try:
+        _json_cache_path(key).parent.mkdir(parents=True, exist_ok=True)
+        _json_cache_path(key).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"JSON 캐시 저장 실패 ({key}): {e}")
+
+
+def _mlb_statsapi_get(params: dict) -> dict:
+    import statsapi
+    return statsapi.get("stats", params)
+
+
+def _fetch_season_splits_paginated(group: str, season: int) -> list[dict]:
+    """MLB StatsAPI 시즌 스탯 전체 페이지 조회 (pitching | hitting)"""
+    cache_key = f"statsapi_{group}_{season}"
+    cached = _load_json_cache(cache_key)
+    if cached is not None:
+        logger.info(f"StatsAPI {group} 캐시 사용 (season={season}, {len(cached)}건)")
+        return cached
+
+    splits: list[dict] = []
+    offset = 0
+    limit = 200
+    while True:
+        data = _mlb_statsapi_get({
+            "stats": "season",
+            "group": group,
+            "season": season,
+            "sportId": 1,
+            "playerPool": "all",
+            "limit": limit,
+            "offset": offset,
+            "hydrate": "team",
+        })
+        batch = data.get("stats", [{}])[0].get("splits", [])
+        splits.extend(batch)
+        if len(batch) < limit:
+            break
+        offset += limit
+
+    _save_json_cache(cache_key, splits)
+    logger.info(f"StatsAPI {group} 수집 완료 (season={season}, {len(splits)}건)")
+    return splits
 
 
 # ── 투수 스탯 ──────────────────────────────────────────────────
@@ -160,14 +237,14 @@ def _get_fg_to_mlbam_map(season: int) -> dict[str, int]:
         return {}
 
 
-def _fetch_pitcher_recent_era_batch(fg_to_mlbam: dict[str, int], season: int) -> dict[int, tuple[float, float]]:
+def _fetch_pitcher_recent_era_batch(mlbam_ids: list[int], season: int) -> dict[int, tuple[float, float]]:
     """statsapi game log로 투수별 최근 3선발 ERA, WHIP 계산
     Returns: {mlbam_id: (recent_era, recent_whip)}
     """
     import statsapi
 
     result: dict[int, tuple[float, float]] = {}
-    for fg_id, mlbam in fg_to_mlbam.items():
+    for mlbam in mlbam_ids:
         try:
             data = statsapi.get("stats", {
                 "personId": mlbam,
@@ -198,14 +275,14 @@ def _fetch_pitcher_recent_era_batch(fg_to_mlbam: dict[str, int], season: int) ->
     return result
 
 
-def _fetch_pitcher_home_away_era_batch(fg_to_mlbam: dict[str, int], season: int) -> dict[int, tuple[float, float]]:
+def _fetch_pitcher_home_away_era_batch(mlbam_ids: list[int], season: int) -> dict[int, tuple[float, float]]:
     """statsapi splitStats로 투수별 홈/원정 ERA 수집
     Returns: {mlbam_id: (home_era, away_era)}
     """
     import statsapi
 
     result: dict[int, tuple[float, float]] = {}
-    for fg_id, mlbam in fg_to_mlbam.items():
+    for mlbam in mlbam_ids:
         try:
             data = statsapi.get("stats", {
                 "personId": mlbam,
@@ -271,13 +348,105 @@ def _extract_pitch_type_cols(row: pd.Series) -> dict:
     return {"fastball_pct": fastball_pct, "avg_velocity": avg_velocity}
 
 
+def _enrich_pitcher_records_from_statsapi(
+    records: list[dict],
+    mlbam_ids: list[int],
+    season: int,
+) -> None:
+    """투구 방향·최근 폼·홈/원정 ERA 보강 (in-place)"""
+    if not records or not mlbam_ids:
+        return
+    unique_ids = list(set(mlbam_ids))
+    handedness_map = _get_pitcher_handedness_batch(unique_ids)
+    # 선발 위주로 최근/홈원정 조회 (전체 투수 game log 조회는 너무 느림)
+    starter_ids = list({
+        int(rec["_mlbam_id"])
+        for rec in records
+        if rec.get("_mlbam_id") and ((rec.get("gs") or 0) >= 1 or (rec.get("ip") or 0) >= 15)
+    })
+    logger.info(f"최근 3경기 ERA 수집 중 (season={season}, 선발={len(starter_ids)}명)...")
+    recent_era_map = _fetch_pitcher_recent_era_batch(starter_ids, season) if starter_ids else {}
+    logger.info(f"홈/원정 ERA 수집 중 (season={season}, 선발={len(starter_ids)}명)...")
+    home_away_map = _fetch_pitcher_home_away_era_batch(starter_ids, season) if starter_ids else {}
+    for rec in records:
+        mlbam = rec.pop("_mlbam_id", None)
+        if mlbam is None:
+            continue
+        rec["handedness"] = handedness_map.get(mlbam, rec.get("handedness") or "R")
+        recent = recent_era_map.get(mlbam)
+        if recent:
+            rec["recent_era"] = recent[0]
+            rec["recent_whip"] = recent[1]
+        home_away = home_away_map.get(mlbam)
+        if home_away:
+            rec["home_era"] = home_away[0]
+            rec["away_era"] = home_away[1]
+
+
+def _build_pitcher_records_from_statsapi(season: int) -> list[dict]:
+    """FanGraphs 실패 시 MLB StatsAPI 시즌 투수 스탯으로 레코드 생성"""
+    splits = _fetch_season_splits_paginated("pitching", season)
+    records: list[dict] = []
+    mlbam_ids: list[int] = []
+
+    for sp in splits:
+        stat = sp.get("stat") or {}
+        ip = float(stat.get("inningsPitched", 0) or 0)
+        if ip < 1:
+            continue
+        team = sp.get("team") or {}
+        abbr = team.get("abbreviation")
+        if not abbr:
+            continue
+        player = sp.get("player") or {}
+        mlbam = player.get("id")
+        name = player.get("fullName", "")
+        if not mlbam or not name:
+            continue
+
+        mlbam = int(mlbam)
+        mlbam_ids.append(mlbam)
+        era = float(stat.get("era", 4.30) or 4.30)
+        whip = float(stat.get("whip", 1.28) or 1.28)
+        k9 = float(stat.get("strikeoutsPer9Inn", 8.7) or 8.7)
+        records.append({
+            "season": season,
+            "name": name,
+            "team_short": _normalize_team(abbr),
+            "era": era,
+            "fip": None,
+            "whip": whip,
+            "k9": k9,
+            "bb9": _safe_float(stat.get("walksPer9Inn")),
+            "ip": ip,
+            "gs": int(stat.get("gamesStarted", 0) or 0),
+            "g": int(stat.get("gamesPlayed", 0) or 0),
+            "handedness": "R",
+            "fg_id": None,
+            "recent_era": None,
+            "recent_whip": None,
+            "home_era": None,
+            "away_era": None,
+            "fastball_pct": None,
+            "avg_velocity": None,
+            "_mlbam_id": mlbam,
+        })
+
+    _enrich_pitcher_records_from_statsapi(records, mlbam_ids, season)
+    for rec in records:
+        rec.pop("_mlbam_id", None)
+    logger.info(f"StatsAPI 투수 레코드 {len(records)}건 생성 (season={season})")
+    return records
+
+
 def build_pitcher_records(season: int) -> list[dict]:
     """투수 스탯 레코드 리스트 생성 (DB upsert용)
     FanGraphs 기본 스탯 + 구종/구속 + statsapi 홈/원정 ERA + 최근 3선발 ERA 포함
     """
     df = _fetch_pitching_stats_sync(season)
     if df.empty:
-        return []
+        logger.warning(f"FanGraphs 투수 스탯 없음 → MLB StatsAPI 폴백 (season={season})")
+        return _build_pitcher_records_from_statsapi(season)
 
     # FanGraphs ID → MLBAM ID 매핑
     fg_to_mlbam = _get_fg_to_mlbam_map(season)
@@ -290,11 +459,11 @@ def build_pitcher_records(season: int) -> list[dict]:
 
     # 최근 3선발 ERA/WHIP (statsapi game log)
     logger.info(f"최근 3경기 ERA 수집 중 (season={season}, 투수={len(fg_to_mlbam)}명)...")
-    recent_era_map = _fetch_pitcher_recent_era_batch(fg_to_mlbam, season)
+    recent_era_map = _fetch_pitcher_recent_era_batch(mlbam_ids, season)
 
     # 홈/원정 분리 ERA (statsapi statSplits)
     logger.info(f"홈/원정 ERA 수집 중 (season={season})...")
-    home_away_map = _fetch_pitcher_home_away_era_batch(fg_to_mlbam, season)
+    home_away_map = _fetch_pitcher_home_away_era_batch(mlbam_ids, season)
 
     records = []
     for _, row in df.iterrows():
@@ -401,11 +570,53 @@ def _fetch_batting_stats_sync(season: int) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _build_team_batting_records_from_statsapi(season: int) -> list[dict]:
+    """MLB StatsAPI 팀 시즌 타격 스탯으로 팀 타선 레코드 생성"""
+    records: list[dict] = []
+    for team_short, team_id in _TEAM_MLBAM_IDS.items():
+        try:
+            data = _mlb_statsapi_get({
+                "teamId": team_id,
+                "group": "hitting",
+                "stats": "season",
+                "season": season,
+                "sportId": 1,
+            })
+            splits = data.get("stats", [{}])[0].get("splits", [])
+            if not splits:
+                continue
+            stat = splits[0].get("stat", {})
+            obp = _safe_float(stat.get("obp"))
+            slg = _safe_float(stat.get("slg"))
+            pa = int(stat.get("plateAppearances", 0) or 0)
+            if obp is None or slg is None or pa < 50:
+                continue
+            ops = obp + slg
+            so = int(stat.get("strikeOuts", 0) or 0)
+            bb = int(stat.get("baseOnBalls", 0) or 0)
+            avg = _safe_float(stat.get("avg"))
+            records.append({
+                "season": season,
+                "team_short": team_short,
+                "ops": round(ops, 4),
+                "wrc_plus": round(100 + (ops - 0.728) / 0.728 * 100, 1),
+                "k_rate": round(so / pa, 4) if pa else 0.22,
+                "bb_rate": round(bb / pa, 4) if pa else None,
+                "iso": round(slg - avg, 4) if avg is not None else None,
+                "babip": _safe_float(stat.get("babip")),
+            })
+        except Exception as e:
+            logger.debug(f"StatsAPI 팀 타선 실패 ({team_short}): {e}")
+    logger.info(f"StatsAPI 팀 타선 레코드 {len(records)}건 생성 (season={season})")
+    return records
+
+
 def build_team_batting_records(season: int) -> list[dict]:
     """개인 타자 스탯을 팀별로 집계하여 팀 타선 레코드 생성"""
     df = _fetch_batting_stats_sync(season)
     if df.empty:
-        return []
+        logger.warning(f"FanGraphs 타자 스탯 없음 → MLB StatsAPI 폴백 (season={season})")
+        return _build_team_batting_records_from_statsapi(season)
 
     # 팀 이적자 제거 (Team이 "- - -" 또는 "TOT")
     df = df[~df["Team"].isin(["- - -", "TOT"])].copy()
@@ -533,25 +744,11 @@ def _build_splits_from_statsapi(season: int) -> list[dict]:
     """statsapi 팀 타격 split stats로 vs LHP / vs RHP 실측 OPS 수집
     sitCodes: 'vl' = vs left-handed, 'vr' = vs right-handed
     """
-    import statsapi
-
-    from app.collectors.pybaseball_collector import MLB_TEAMS
-
-    # short_name → MLB StatsAPI team ID 매핑
-    _TEAM_MLBAM_IDS: dict[str, int] = {
-        "ARI": 109, "ATL": 144, "BAL": 110, "BOS": 111, "CHC": 112,
-        "CWS": 145, "CIN": 113, "CLE": 114, "COL": 115, "DET": 116,
-        "HOU": 117, "KC": 118, "LAA": 108, "LAD": 119, "MIA": 146,
-        "MIL": 158, "MIN": 142, "NYM": 121, "NYY": 147, "OAK": 133,
-        "PHI": 143, "PIT": 134, "SD": 135, "SF": 137, "SEA": 136,
-        "STL": 138, "TB": 139, "TEX": 140, "TOR": 141, "WSH": 120,
-    }
-
     records = []
     for team_short, mlbam_id in _TEAM_MLBAM_IDS.items():
         for sit_code, split_name in [("vl", "vs_lhp"), ("vr", "vs_rhp")]:
             try:
-                data = statsapi.get("stats", {
+                data = _mlb_statsapi_get({
                     "teamId": mlbam_id,
                     "group": "hitting",
                     "stats": "statSplits",
