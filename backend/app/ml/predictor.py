@@ -203,18 +203,33 @@ class Predictor:
 
 
 def _model_n_features(model) -> Optional[int]:
+    """모델이 기대하는 피처 수. 확인 불가면 None (검사 스킵)."""
     if model is None:
         return None
-    if hasattr(model, "n_features_in_") and model.n_features_in_ is not None:
-        return int(model.n_features_in_)
+    # CatBoost: feature_count_가 0으로 나오는 경우가 있어 feature_names_ 우선
     try:
-        return int(model.num_feature())
+        names = getattr(model, "feature_names_", None)
+        if names and len(names) > 0:
+            return len(names)
+    except Exception:
+        pass
+    if hasattr(model, "n_features_in_") and model.n_features_in_ is not None:
+        n = int(model.n_features_in_)
+        if n > 0:
+            return n
+    try:
+        n = int(model.num_feature())
+        if n > 0:
+            return n
     except Exception:
         pass
     try:
-        return int(model.feature_count_)
+        n = int(model.feature_count_)
+        if n > 0:
+            return n
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _feature_count_mismatch(
