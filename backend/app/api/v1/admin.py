@@ -418,8 +418,14 @@ async def trigger_lineup(target_date: str = Query(default=None), force: bool = Q
             await db.execute(
                 sa_update(Game)
                 .where(Game.game_date == d, Game.league == "KBO", Game.status == "scheduled")
-                .values(lineup_locked=False, lineup_locked_at=None,
-                        home_starter_name=None, away_starter_name=None)
+                .values(
+                    lineup_locked=False,
+                    lineup_locked_at=None,
+                    home_starter_name=None,
+                    away_starter_name=None,
+                    home_lineup_json=None,
+                    away_lineup_json=None,
+                )
             )
             await db.commit()
         logger.info(f"라인업 초기화 완료: {d}")

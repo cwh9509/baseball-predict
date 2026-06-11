@@ -42,7 +42,9 @@ def _lineup_batter_count(lineup_json) -> int:
 
 
 def _needs_lineup_refresh(game: Game) -> bool:
-    """선발만 있거나 타순이 9명 미만이면 계속 수집"""
+    """공식 라인업 확정(lineup_locked) 전까지 계속 수집"""
+    if not game.lineup_locked:
+        return True
     home_n = _lineup_batter_count(game.home_lineup_json)
     away_n = _lineup_batter_count(game.away_lineup_json)
     if home_n < 9 or away_n < 9:
@@ -400,15 +402,18 @@ async def run_for_date(target_date: date) -> None:
             starters = starter_map.get(game.external_game_id or "")
             home_starter = starters[0] if starters else None
             away_starter = starters[1] if starters else None
+            home_n = _lineup_batter_count(game.home_lineup_json)
+            away_n = _lineup_batter_count(game.away_lineup_json)
 
             # 스케줄 API에서 선발 없으면 Naver 우선, KBO 폴백
             lineup_source = "schedule" if (home_starter and away_starter) else None
-            home_lineup: list = []
-            away_lineup: list = []
+            home_lineup: list = list(game.home_lineup_json or []) if home_n else []
+            away_lineup: list = list(game.away_lineup_json or []) if away_n else []
 
             need_fetch = (
-                not home_starter or not away_starter
-                or len(home_lineup) < 9 or len(away_lineup) < 9
+                not game.lineup_locked
+                or not home_starter or not away_starter
+                or home_n < 9 or away_n < 9
             )
             if game.external_game_id and need_fetch:
                 try:
@@ -454,7 +459,10 @@ async def run_for_date(target_date: date) -> None:
                 updated_count += 1
                 await _retrigger_prediction(db, game.id)
             else:
-                logger.debug(f"game_id={game.id} 선발투수 미확정 (home={game.home_starter_name}, away={game.away_starter_name})")
+                logger.info(
+                    f"game_id={game.id} 라인업 변경 없음 "
+                    f"(locked={game.lineup_locked}, home={home_n}명, away={away_n}명, source={lineup_source})"
+                )
 
     logger.info(f"라인업 감시 완료 — {updated_count}경기 업데이트 ({target_date})")
 
