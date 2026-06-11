@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
-from app.features.builder import FEATURE_COLUMNS
+from app.features.builder import FEATURE_COLUMNS, get_feature_columns
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,8 @@ def save_lgb_model(model, version: str, league: Optional[str] = None) -> Path:
         "model_type": "lightgbm",
         "league": lg,
         "path": str(path),
-        "feature_columns": FEATURE_COLUMNS,
-        "n_features": len(FEATURE_COLUMNS),
+        "feature_columns": get_feature_columns(lg) + ["predicted_score_diff"],
+        "n_features": len(get_feature_columns(lg)) + 1,
     }
     meta_path = get_model_dir() / f"model_metadata_lgb_{lg.lower()}.json"
     meta_path.write_text(json.dumps(metadata, indent=2))
@@ -63,8 +63,8 @@ def save_cat_model(model, version: str, league: Optional[str] = None) -> Path:
         "model_type": "catboost",
         "league": lg,
         "path": str(path),
-        "feature_columns": FEATURE_COLUMNS,
-        "n_features": len(FEATURE_COLUMNS),
+        "feature_columns": get_feature_columns(lg) + ["predicted_score_diff"],
+        "n_features": len(get_feature_columns(lg)) + 1,
     }
     meta_path = get_model_dir() / f"model_metadata_cat_{lg.lower()}.json"
     meta_path.write_text(json.dumps(metadata, indent=2))
@@ -150,8 +150,8 @@ def _save_metadata(version: str, model_type: str, path: Path, league: str) -> No
         "model_type": model_type,
         "league": league,
         "path": str(path),
-        "feature_columns": FEATURE_COLUMNS,
-        "n_features": len(FEATURE_COLUMNS),
+        "feature_columns": get_feature_columns(league) + ["predicted_score_diff"],
+        "n_features": len(get_feature_columns(league)) + 1,
     }
     meta_path = get_model_dir() / _metadata_file(league)
     meta_path.write_text(json.dumps(metadata, indent=2))
@@ -277,7 +277,8 @@ def save_score_models(home_model, away_model, version: str, league: Optional[str
         "league": lg,
         "home_path": str(home_path),
         "away_path": str(away_path),
-        "feature_columns": FEATURE_COLUMNS,
+        "feature_columns": get_feature_columns(lg),
+        "n_features": len(get_feature_columns(lg)),
     }
     meta_path = get_model_dir() / f"model_metadata_score_{lg.lower()}.json"
     meta_path.write_text(json.dumps(metadata, indent=2))

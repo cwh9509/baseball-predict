@@ -739,11 +739,12 @@ async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: s
             select(KboPlayerSeasonStat).where(
                 and_(
                     KboPlayerSeasonStat.name == name,
+                    KboPlayerSeasonStat.team_short == team_short,
                     KboPlayerSeasonStat.role == "pitcher",
                     KboPlayerSeasonStat.season == s,
                 )
-            )
-        )).scalar_one_or_none()
+            ).limit(1)
+        )).scalars().first()
         if row and row.handedness:
             return row.handedness
     for s in [season, season - 1]:
@@ -751,8 +752,8 @@ async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: s
             select(KboPitcherStat).where(
                 and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short,
                      KboPitcherStat.season == s)
-            )
-        )).scalar_one_or_none()
+            ).limit(1)
+        )).scalars().first()
         if row and row.handedness:
             return row.handedness
     return None
@@ -784,7 +785,7 @@ async def _get_kbo_starter_recent_stats(
             and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),
             and_(KboPitcherStat.name == name, KboPitcherStat.season == s),
         ]:
-            row = (await db.execute(select(KboPitcherStat).where(cond))).scalar_one_or_none()
+            row = (await db.execute(select(KboPitcherStat).where(cond).limit(1))).scalars().first()
             if row and (row.recent_era is not None or row.recent_whip is not None):
                 return row.recent_era, row.recent_whip
     return None, None

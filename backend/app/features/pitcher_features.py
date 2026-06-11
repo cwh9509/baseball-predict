@@ -65,7 +65,7 @@ async def get_kbo_starter_stats(
                 and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),
                 and_(KboPitcherStat.name == name, KboPitcherStat.season == s),
             ]:
-                row = (await db.execute(select(KboPitcherStat).where(extra_cond))).scalar_one_or_none()
+                row = (await db.execute(select(KboPitcherStat).where(extra_cond).limit(1))).scalars().first()
                 if row:
                     return {"era": row.era, "whip": row.whip, "k9": row.k9}
         logger.warning(f"[KBO pitcher] 스탯 없음: name={name!r} team={team_short!r} season={season} → 임시값 사용")
@@ -88,9 +88,10 @@ async def get_kbo_starter_stats(
                 row = (await db.execute(
                     select(KboPitcherStat).where(
                         KboPitcherStat.name == norm_name,
+                        KboPitcherStat.team_short == team_short,
                         KboPitcherStat.season == s,
-                    )
-                )).scalar_one_or_none()
+                    ).limit(1)
+                )).scalars().first()
                 if row:
                     logger.info(f"[KBO pitcher] NFC 정규화로 매칭 성공: {name!r} → {norm_name!r}")
                     return {"era": row.era, "whip": row.whip, "k9": row.k9}

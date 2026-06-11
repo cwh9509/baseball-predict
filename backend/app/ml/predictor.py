@@ -11,7 +11,7 @@ import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.builder import build_features
-from app.ml.feature_matrix import to_classifier_frame, to_score_frame
+from app.ml.feature_matrix import classifier_feature_columns, score_feature_columns, to_classifier_frame, to_score_frame
 from app.ml.model_registry import load_latest_model, load_ensemble_models, load_score_models
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,17 @@ class Predictor:
             return None
 
         score_features = to_score_frame(feature_array, game.league)
+        classifier_features = to_classifier_frame(
+            np.append(feature_array, 0.0), game.league
+        )
+
+        mismatch = _feature_count_mismatch(
+            game.league, xgb_model, lgb_model, cat_model, home_score_model, away_score_model,
+            len(score_features.columns), len(classifier_features.columns),
+        )
+        if mismatch:
+            logger.error(f"[{game.league}] {mismatch} — retrain?league={game.league} 후 collect 하세요 (game_id={game_id})")
+            return None
 
         clean_snapshot = {
             k: (None if isinstance(v, float) and np.isnan(v) else v)
@@ -133,7 +144,6 @@ class Predictor:
             except Exception as e:
                 logger.warning(f"스코어 예측 실패 (game_id={game_id}): {e}")
 
-        # 스코어 차이를 피처로 추가해 분류 모델 재입력
         classifier_features = to_classifier_frame(
             np.append(feature_array, score_diff), game.league
         )
@@ -190,6 +200,52 @@ class Predictor:
             "predicted_home_score": predicted_home_score,
             "predicted_away_score": predicted_away_score,
         }
+
+
+def _model_n_features(model) -> Optional[int]:
+    if model is None:
+        return None
+    if hasattr(model, "n_features_in_") and model.n_features_in_ is not None:
+        return int(model.n_features_in_)
+    try:
+        return int(model.num_feature())
+    except Exception:
+        pass
+    try:
+        return int(model.feature_count_)
+    except Exception:
+        return None
+
+
+def _feature_count_mismatch(
+    league: str,
+    xgb_model,
+    lgb_model,
+    cat_model,
+    home_score_model,
+    away_score_model,
+    score_n: int,
+    classifier_n: int,
+) -> Optional[str]:
+    expected_score = len(score_feature_columns(league))
+    expected_cls = len(classifier_feature_columns(league))
+    if score_n != expected_score or classifier_n != expected_cls:
+        return (
+            f"피처 생성 오류: score={score_n}(기대 {expected_score}), "
+            f"classifier={classifier_n}(기대 {expected_cls})"
+        )
+
+    for label, model, expected in (
+        ("XGB", xgb_model, expected_cls),
+        ("LGB", lgb_model, expected_cls),
+        ("CAT", cat_model, expected_cls),
+        ("score_home", home_score_model, expected_score),
+        ("score_away", away_score_model, expected_score),
+    ):
+        model_n = _model_n_features(model)
+        if model_n is not None and model_n != expected:
+            return f"{label} 모델 피처 수 불일치: 모델={model_n}, 코드={expected}"
+    return None
 
 
 def _get_prob(model, features) -> Optional[float]:
