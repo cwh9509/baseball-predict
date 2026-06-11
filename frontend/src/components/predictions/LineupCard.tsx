@@ -17,13 +17,17 @@ function posLabel(pos: string) {
 
 export default function LineupCard({ lineup, homeTeamName, awayTeamName }: Props) {
   const hasLineup = lineup.home_lineup.length > 0 || lineup.away_lineup.length > 0
+  const hasFullLineup = lineup.home_lineup.length >= 9 && lineup.away_lineup.length >= 9
+  const hasStarters = Boolean(lineup.home_starter || lineup.away_starter)
 
   return (
     <div className="bg-white rounded-xl border shadow-sm p-4 mt-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-gray-700 text-sm">선발 라인업</h3>
-        {lineup.lineup_locked ? (
+        {lineup.lineup_locked || hasFullLineup ? (
           <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">확정</span>
+        ) : hasStarters ? (
+          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">선발 확정</span>
         ) : (
           <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full border">미발표</span>
         )}
@@ -75,7 +79,12 @@ export default function LineupCard({ lineup, homeTeamName, awayTeamName }: Props
         </div>
       )}
 
-      {!hasLineup && (
+      {!hasLineup && hasStarters && (
+        <p className="text-xs text-gray-400 text-center py-2">
+          타순은 경기 시작 1~2시간 전 자동으로 업데이트됩니다
+        </p>
+      )}
+      {!hasLineup && !hasStarters && (
         <p className="text-xs text-gray-400 text-center py-2">
           경기 시작 1~2시간 전 자동으로 업데이트됩니다
         </p>

@@ -41,6 +41,28 @@ def _lineup_batter_count(lineup_json) -> int:
     return len(lineup_json)
 
 
+def _parse_game_time_kst(game_time, now_kst: datetime) -> Optional[datetime]:
+    """DB game_time → KST datetime (18:30:00+00:00 형식 지원)"""
+    if not game_time:
+        return None
+    try:
+        raw = str(game_time).split("+")[0].strip()
+        parts = raw.split(":")
+        hour, minute = int(parts[0]), int(parts[1])
+        return now_kst.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def _should_skip_started_game(game: Game, now_kst: datetime) -> bool:
+    """라인업 확정·타순 완비된 경기만 시작 후 스킵"""
+    if not _needs_lineup_refresh(game):
+        game_dt = _parse_game_time_kst(game.game_time, now_kst)
+        if game_dt and now_kst >= game_dt:
+            return True
+    return False
+
+
 def _needs_lineup_refresh(game: Game) -> bool:
     """공식 라인업 확정(lineup_locked) 전까지 계속 수집"""
     if not game.lineup_locked:
@@ -304,16 +326,18 @@ async def run_pre_game() -> None:
         target_games = []
         for game in games:
             try:
-                h, m, *_ = str(game.game_time).split(":")
-                game_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
+                game_dt = _parse_game_time_kst(game.game_time, now_kst)
+                if not game_dt:
+                    continue
                 minutes_until = (game_dt - now_kst).total_seconds() / 60
-                if 0 <= minutes_until <= 60:
+                # 시작 60분 전 ~ 시작 후 3시간(미수집 라인업 보완)
+                if 0 <= minutes_until <= 60 or (-180 <= minutes_until < 0 and _needs_lineup_refresh(game)):
                     target_games.append(game)
             except Exception:
                 continue
 
         if not target_games:
-            logger.info("30분 내 시작 예정 미확정 경기 없음")
+            logger.info("경기 전·직후 집중 감시 대상 없음")
             return
 
         logger.info(f"{len(target_games)}경기 집중 감시 중...")
@@ -388,16 +412,9 @@ async def run_for_date(target_date: date) -> None:
 
         updated_count = 0
         for game in games:
-            # 이미 시작된 경기는 예측 불필요 — 스킵
-            if game.game_time:
-                try:
-                    h, m, *_ = str(game.game_time).split(":")
-                    game_dt = now_kst.replace(hour=int(h), minute=int(m), second=0, microsecond=0)
-                    if now_kst >= game_dt:
-                        logger.debug(f"game_id={game.id} 이미 시작된 경기 — 라인업 감시 스킵")
-                        continue
-                except Exception:
-                    pass
+            if _should_skip_started_game(game, now_kst):
+                logger.debug(f"game_id={game.id} 라인업 확정 완료·경기 시작 — 스킵")
+                continue
 
             starters = starter_map.get(game.external_game_id or "")
             home_starter = starters[0] if starters else None
@@ -421,10 +438,16 @@ async def run_for_date(target_date: date) -> None:
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
-                        if len(home_lineup) < 9:
-                            home_lineup = lc_result.get("home_lineup") or home_lineup
-                        if len(away_lineup) < 9:
-                            away_lineup = lc_result.get("away_lineup") or away_lineup
+                        fetched_home = lc_result.get("home_lineup") or []
+                        fetched_away = lc_result.get("away_lineup") or []
+                        if len(fetched_home) >= 9:
+                            home_lineup = fetched_home
+                        elif fetched_home and len(home_lineup) < 9:
+                            home_lineup = fetched_home
+                        if len(fetched_away) >= 9:
+                            away_lineup = fetched_away
+                        elif fetched_away and len(away_lineup) < 9:
+                            away_lineup = fetched_away
                         lineup_source = lc_result.get("source")
                         logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lineup_source}) 타순: home={len(home_lineup)}명, away={len(away_lineup)}명")
                 except Exception as e:
@@ -445,8 +468,10 @@ async def run_for_date(target_date: date) -> None:
                 except Exception as e:
                     logger.debug(f"game_id={game.id} KBO lineup collector 폴백 실패: {e}")
 
-            # naver_preview는 양쪽 선발 모두 있을 때만 확정, 나머지 소스는 무조건 확정
-            is_confirmed = lineup_source not in ("naver_preview", None) or (bool(home_starter) and bool(away_starter))
+            # 선발만(preview)은 미확정, 타순 9명 이상이면 확정
+            is_confirmed = lineup_source not in ("naver_preview", None) or (
+                len(home_lineup) >= 9 and len(away_lineup) >= 9
+            )
             lineup = {
                 "home_starter": home_starter,
                 "away_starter": away_starter,
@@ -465,6 +490,13 @@ async def run_for_date(target_date: date) -> None:
                 )
 
     logger.info(f"라인업 감시 완료 — {updated_count}경기 업데이트 ({target_date})")
+
+    if updated_count > 0:
+        try:
+            from app.core.redis_client import cache_delete
+            await cache_delete(f"games:today:KBO:{target_date.isoformat()}")
+        except Exception:
+            pass
 
 
 async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> bool:

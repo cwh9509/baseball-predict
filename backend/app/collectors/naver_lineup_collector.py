@@ -88,14 +88,25 @@ class NaverLineupCollector:
         """
         naver_id = _naver_game_id(kbo_game_id)
 
-        # 1) lineup API — 경기 시작 1시간 전부터 공식 타순 발표
+        # 1) lineup API (구버전 — 대부분 lineUpData=null)
         result = await asyncio.to_thread(self._fetch_lineup_endpoint, naver_id)
-        if result:
+        if result and self._has_full_batting_order(result):
             return result
 
-        # 2) preview 폴백 — 선발투수만 (타순 발표 전)
-        result = await asyncio.to_thread(self._fetch_preview_endpoint, naver_id)
-        return result
+        # 2) preview — 선발 + fullLineUp(타순 9명, 2026년 이후 실제 발표 경로)
+        preview = await asyncio.to_thread(self._fetch_preview_endpoint, naver_id)
+        if preview and self._has_full_batting_order(preview):
+            return preview
+
+        # 3) relay/record — 경기 직전·경기 중 타순
+        for fetch_fn in (self._fetch_relay_endpoint, self._fetch_record_endpoint):
+            relay = await asyncio.to_thread(fetch_fn, naver_id)
+            if relay and self._has_full_batting_order(relay):
+                return relay
+
+        if result:
+            return result
+        return preview
 
     def _fetch_relay_endpoint(self, naver_id: str) -> Optional[dict]:
         """relay 엔드포인트 — 경기 중/후 전체 타순
@@ -407,30 +418,71 @@ class NaverLineupCollector:
             "source": "naver_lineup",
         }
 
+    @staticmethod
+    def _has_full_batting_order(data: dict) -> bool:
+        home = data.get("home_lineup") or []
+        away = data.get("away_lineup") or []
+        return len(home) >= 9 and len(away) >= 9
+
+    def _parse_team_full_lineup(self, team_lineup: dict) -> tuple[list, Optional[str]]:
+        """preview.homeTeamLineUp.fullLineUp → 타순 9명 + 선발투수"""
+        entries = team_lineup.get("fullLineUp") or []
+        if len(entries) < 2:
+            return [], None
+
+        starter: Optional[str] = None
+        lineup: list = []
+        order = 0
+        for p in entries:
+            name = p.get("playerName") or p.get("name")
+            if not name:
+                continue
+            pos_code = str(p.get("position", ""))
+            pos_name = p.get("positionName") or p.get("position") or ""
+            is_pitcher = pos_code == "1" or "투수" in str(pos_name)
+            if is_pitcher:
+                starter = name
+                continue
+            order += 1
+            lineup.append({
+                "order": order,
+                "name": name,
+                "position": pos_name or pos_code,
+            })
+        return lineup, starter
+
     def _parse_preview_data(self, preview: dict) -> Optional[dict]:
         """preview 엔드포인트 응답 파싱
-        - homeStarter / awayStarter: 선발투수만 추출
-        - batterCandidate: 포지션 후보 목록 (타순 아님) → 무시
-        - 실제 타순은 /lineup 엔드포인트에서만 확인 가능
+        - homeStarter / awayStarter: 선발투수
+        - homeTeamLineUp.fullLineUp: 타순 9명 (선발투수 포함 10명 배열)
+        - batterCandidate: 후보 목록 (타순 아님) → 무시
         """
         home_starter_info = preview.get("homeStarter", {}).get("playerInfo", {})
         away_starter_info = preview.get("awayStarter", {}).get("playerInfo", {})
         home_starter = home_starter_info.get("name")
         away_starter = away_starter_info.get("name")
 
-        if not home_starter and not away_starter:
+        home_lineup, home_sp_from_lu = self._parse_team_full_lineup(preview.get("homeTeamLineUp") or {})
+        away_lineup, away_sp_from_lu = self._parse_team_full_lineup(preview.get("awayTeamLineUp") or {})
+        home_starter = home_starter or home_sp_from_lu
+        away_starter = away_starter or away_sp_from_lu
+
+        if not home_starter and not away_starter and not home_lineup and not away_lineup:
             return None
 
+        has_full = len(home_lineup) >= 9 and len(away_lineup) >= 9
+        source = "naver_preview_lineup" if has_full else "naver_preview"
         logger.info(
-            f"Naver preview 파싱: home={home_starter} away={away_starter} (타순은 lineup 엔드포인트 대기)"
+            f"Naver preview 파싱: home={home_starter} away={away_starter} "
+            f"타순 home={len(home_lineup)}명 away={len(away_lineup)}명 ({source})"
         )
 
         return {
             "home_starter": home_starter,
             "away_starter": away_starter,
-            "home_lineup": [],
-            "away_lineup": [],
-            "source": "naver_preview",
+            "home_lineup": home_lineup,
+            "away_lineup": away_lineup,
+            "source": source,
         }
 
     def fetch_schedule_sync(self, target_date: date) -> list[dict]:
