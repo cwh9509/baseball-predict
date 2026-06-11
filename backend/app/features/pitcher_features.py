@@ -38,6 +38,7 @@ async def get_kbo_starter_stats(
     team_short: str,
     season: int,
     db: Optional[AsyncSession] = None,
+    before_date: Optional[date] = None,
 ) -> Optional[dict]:
     """KBO 선발투수 개인 스탯 (era, whip, k9) 반환
     이름 미지정 또는 데이터 없으면 None 반환
@@ -47,7 +48,7 @@ async def get_kbo_starter_stats(
         return None
     if db is not None:
         from app.pipeline.player_stats_aggregator import get_db_pitcher_stats
-        db_stats = await get_db_pitcher_stats(db, name, team_short, season)
+        db_stats = await get_db_pitcher_stats(db, name, team_short, season, before_date=before_date)
         if db_stats:
             return {
                 "era": db_stats["era"],

@@ -11,6 +11,7 @@ import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.builder import build_features
+from app.ml.feature_matrix import to_classifier_frame, to_score_frame
 from app.ml.model_registry import load_latest_model, load_ensemble_models, load_score_models
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,7 @@ class Predictor:
             logger.warning(f"game_id={game_id} 피처 생성 실패: {e}")
             return None
 
-        feature_2d = feature_array.reshape(1, -1)
+        score_features = to_score_frame(feature_array, game.league)
 
         clean_snapshot = {
             k: (None if isinstance(v, float) and np.isnan(v) else v)
@@ -126,19 +127,21 @@ class Predictor:
         home_score_model, away_score_model, _ = score_tuple
         if home_score_model is not None and away_score_model is not None:
             try:
-                predicted_home_score = max(0, round(float(home_score_model.predict(feature_2d)[0])))
-                predicted_away_score = max(0, round(float(away_score_model.predict(feature_2d)[0])))
+                predicted_home_score = max(0, round(float(home_score_model.predict(score_features)[0])))
+                predicted_away_score = max(0, round(float(away_score_model.predict(score_features)[0])))
                 score_diff = float(predicted_home_score - predicted_away_score)
             except Exception as e:
                 logger.warning(f"스코어 예측 실패 (game_id={game_id}): {e}")
 
         # 스코어 차이를 피처로 추가해 분류 모델 재입력
-        feature_2d_aug = np.append(feature_2d, [[score_diff]], axis=1)
+        classifier_features = to_classifier_frame(
+            np.append(feature_array, score_diff), game.league
+        )
 
         try:
-            xgb_prob = _get_prob(xgb_model, feature_2d_aug)
-            lgb_prob = _get_prob(lgb_model, feature_2d_aug)
-            cat_prob = _get_prob(cat_model, feature_2d_aug)
+            xgb_prob = _get_prob(xgb_model, classifier_features)
+            lgb_prob = _get_prob(lgb_model, classifier_features)
+            cat_prob = _get_prob(cat_model, classifier_features)
 
             base_probs = [p for p in [xgb_prob, lgb_prob, cat_prob] if p is not None]
 
@@ -189,15 +192,15 @@ class Predictor:
         }
 
 
-def _get_prob(model, feature_2d) -> Optional[float]:
+def _get_prob(model, features) -> Optional[float]:
     """모델에서 홈팀 승리 확률 추출 (None=모델 없음)"""
     if model is None:
         return None
     try:
         if hasattr(model, "predict_proba"):
-            return float(model.predict_proba(feature_2d)[0][1])
+            return float(model.predict_proba(features)[0][1])
         else:
-            return float(model.predict(feature_2d)[0])
+            return float(model.predict(features)[0])
     except Exception as e:
         logger.warning(f"모델 예측 실패: {e}")
         return None

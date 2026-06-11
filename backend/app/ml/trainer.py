@@ -20,6 +20,7 @@ from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.features.builder import get_feature_columns, build_features
 from app.features.elo_features import invalidate_elo_cache
+from app.ml.feature_matrix import to_classifier_frame, to_score_frame
 from app.ml.model_registry import (
     save_xgb_model, save_lgb_model, save_cat_model, save_meta_model,
     save_score_models, save_calibrator,
@@ -148,6 +149,7 @@ class Trainer:
         import lightgbm as lgb
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
+        X_df = to_classifier_frame(X, self.league)
 
         def objective(trial):
             params = {
@@ -162,7 +164,7 @@ class Trainer:
                 "reg_lambda":         trial.suggest_float("reg_lambda", 0.5, 5.0),
             }
             model = lgb.LGBMClassifier(**params, random_state=42, verbose=-1, n_jobs=-1)
-            scores = cross_val_score(model, X, y, cv=tscv, scoring="accuracy")
+            scores = cross_val_score(model, X_df, y, cv=tscv, scoring="accuracy")
             return scores.mean()
 
         logger.info(f"LightGBM Optuna 튜닝 시작 ({N_OPTUNA_TRIALS} trials)...")
@@ -174,7 +176,7 @@ class Trainer:
         logger.info(f"LightGBM 최적 CV 정확도: {study.best_value:.3f}")
 
         final_model = lgb.LGBMClassifier(**best, random_state=42, verbose=-1, n_jobs=-1)
-        final_model.fit(X, y)
+        final_model.fit(X_df, y)
         save_lgb_model(final_model, version, league=self.league)
         return final_model
 
@@ -218,11 +220,12 @@ class Trainer:
         """OOF 예측으로 Stacking 메타 모델 학습 + Isotonic 확률 캘리브레이션"""
         from sklearn.isotonic import IsotonicRegression
 
-        n = len(X)
+        X_df = to_classifier_frame(X, self.league)
+        n = len(X_df)
         meta_X = np.zeros((n, 3), dtype=np.float32)
 
-        for train_idx, val_idx in tscv.split(X):
-            X_tr, X_val = X[train_idx], X[val_idx]
+        for train_idx, val_idx in tscv.split(X_df):
+            X_tr, X_val = X_df.iloc[train_idx], X_df.iloc[val_idx]
             y_tr = y[train_idx]
 
             xgb_tmp = clone(xgb_model)
@@ -266,9 +269,10 @@ class Trainer:
 
     def _log_ensemble_cv(self, xgb_model, lgb_model, cat_model, meta_model, X, y, tscv):
         """Stacking CV 정확도 계산"""
+        X_df = to_classifier_frame(X, self.league)
         scores = []
-        for train_idx, val_idx in tscv.split(X):
-            X_tr, X_val = X[train_idx], X[val_idx]
+        for train_idx, val_idx in tscv.split(X_df):
+            X_tr, X_val = X_df.iloc[train_idx], X_df.iloc[val_idx]
             y_tr, y_val = y[train_idx], y[val_idx]
 
             xgb_tmp = clone(xgb_model); xgb_tmp.fit(X_tr, y_tr)
@@ -293,6 +297,8 @@ class Trainer:
         """홈/원정 득점 회귀 모델 학습"""
         import xgboost as xgb
 
+        X_df = to_score_frame(X, self.league)
+
         home_model = xgb.XGBRegressor(
             n_estimators=300,
             max_depth=4,
@@ -311,8 +317,8 @@ class Trainer:
             random_state=42,
             n_jobs=-1,
         )
-        home_model.fit(X, y_home)
-        away_model.fit(X, y_away)
+        home_model.fit(X_df, y_home)
+        away_model.fit(X_df, y_away)
         save_score_models(home_model, away_model, version, league=self.league)
         logger.info("스코어 회귀 모델 저장 완료")
         return home_model, away_model
@@ -376,9 +382,9 @@ class Trainer:
                     score_diff = 0.0
                     if home_score_model is not None and away_score_model is not None:
                         try:
-                            f2d = feature_array.reshape(1, -1)
-                            pred_home = float(home_score_model.predict(f2d)[0])
-                            pred_away = float(away_score_model.predict(f2d)[0])
+                            f_df = to_score_frame(feature_array, self.league)
+                            pred_home = float(home_score_model.predict(f_df)[0])
+                            pred_away = float(away_score_model.predict(f_df)[0])
                             score_diff = pred_home - pred_away
                         except Exception:
                             score_diff = 0.0

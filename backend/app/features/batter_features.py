@@ -344,10 +344,13 @@ async def get_roster_lineup_features(
     prefix: str,
     team_fallback_ops: Optional[float] = None,
     db: Optional[AsyncSession] = None,
+    opponent_starter_throws: Optional[str] = None,
+    cutoff_date: Optional["date"] = None,
 ) -> dict:
     """타순 1~9번 개별 OPS + 라인업 매칭률 피처
 
     lineup_json 항목: {"order": 1, "name": "...", "position": "..."}
+    KBO: 상대 선발 좌/우손이 있으면 박스스코어 기반 개인 스플릿 OPS 우선 사용
     """
     result: dict = {}
     slots: list[Optional[float]] = [None] * 9
@@ -378,7 +381,14 @@ async def get_roster_lineup_features(
         name = by_order.get(i)
         ops = None
         if name:
-            ops = await _lookup_batter_ops(name, league, season, team_short, kbo_map, mlb_map, db=db)
+            if league == "KBO" and db is not None and opponent_starter_throws in ("L", "R"):
+                from app.pipeline.player_stats_aggregator import get_db_batter_split_ops
+                ops = await get_db_batter_split_ops(
+                    db, name, team_short, season, opponent_starter_throws,
+                    before_date=cutoff_date,
+                )
+            if ops is None:
+                ops = await _lookup_batter_ops(name, league, season, team_short, kbo_map, mlb_map, db=db)
             if ops is not None:
                 known += 1
             elif team_fallback_ops is not None:

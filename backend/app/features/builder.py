@@ -121,11 +121,7 @@ _NEW_COMMON_COLUMNS = [
     "home_offense_trend", "away_offense_trend",  # hot=1, normal=0, cold=-1
     # 불펜 실제 등판 피로도
     "home_bullpen_fatigue", "away_bullpen_fatigue",
-]
-
-# MLB 전용 신규 피처
-_MLB_NEW_COLUMNS = [
-    # 타선 vs 선발투수 상대전적
+    # 타선 vs 선발투수 상대전적 (KBO + MLB)
     "home_lineup_vs_sp_avg_runs", "away_lineup_vs_sp_avg_runs",
     "home_lineup_vs_sp_win_rate", "away_lineup_vs_sp_win_rate",
 ]
@@ -168,7 +164,7 @@ _MLB_ADVANCED_COLUMNS = [
 # MLB: 전체 피처 (투수/타자 통계 + 확장 + 고급 + 신규 + 타순 개별 OPS)
 MLB_FEATURE_COLUMNS = (
     _FORM_WEATHER_COLUMNS + _PITCHER_BATTER_COLUMNS + _MLB_EXTENDED_COLUMNS
-    + _MLB_ADVANCED_COLUMNS + _LINEUP_ROSTER_COLUMNS + _NEW_COMMON_COLUMNS + _MLB_NEW_COLUMNS
+    + _MLB_ADVANCED_COLUMNS + _LINEUP_ROSTER_COLUMNS + _NEW_COMMON_COLUMNS
 )
 
 # 기본값 (하위 호환)
@@ -345,7 +341,8 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         if league == "KBO":
             if home_team_obj and game.home_starter_name:
                 _home_kbo = await get_kbo_starter_stats(
-                    game.home_starter_name, home_team_obj.short_name, season, db=db
+                    game.home_starter_name, home_team_obj.short_name, season, db=db,
+                    before_date=cutoff_date,
                 )
                 home_sp_era_indiv = _home_kbo.get("era") if _home_kbo else None
                 # 투구 방향이 아직 없으면 DB에서 조회
@@ -355,7 +352,8 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
                     )
             if away_team_obj and game.away_starter_name:
                 _away_kbo = await get_kbo_starter_stats(
-                    game.away_starter_name, away_team_obj.short_name, season, db=db
+                    game.away_starter_name, away_team_obj.short_name, season, db=db,
+                    before_date=cutoff_date,
                 )
                 away_sp_era_indiv = _away_kbo.get("era") if _away_kbo else None
                 if away_sp_throws is None:
@@ -430,11 +428,15 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
         game.home_lineup_json, league, season, home_team_short, "home",
         team_fallback_ops=home_lineup.get("lineup_ops_mean"),
         db=db,
+        opponent_starter_throws=away_sp_throws,
+        cutoff_date=cutoff_date,
     )
     away_roster_feats = await get_roster_lineup_features(
         game.away_lineup_json, league, season, away_team_short, "away",
         team_fallback_ops=away_lineup.get("lineup_ops_mean"),
         db=db,
+        opponent_starter_throws=home_sp_throws,
+        cutoff_date=cutoff_date,
     )
 
     weather = await get_weather_features(db, game.id, game.home_team_id)
@@ -457,16 +459,13 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     home_bullpen_fatigue_data = await get_bullpen_recent_appearances(db, game.home_team_id, cutoff_date)
     away_bullpen_fatigue_data = await get_bullpen_recent_appearances(db, game.away_team_id, cutoff_date)
 
-    # 신규 피처: 타선 vs 선발투수 상대전적 (MLB 전용)
-    home_lineup_vs_sp = {}
-    away_lineup_vs_sp = {}
-    if league == "MLB":
-        home_lineup_vs_sp = await get_batter_vs_pitcher_stats(
-            db, game.home_team_id, game.away_starter_name, league, cutoff_date
-        )
-        away_lineup_vs_sp = await get_batter_vs_pitcher_stats(
-            db, game.away_team_id, game.home_starter_name, league, cutoff_date
-        )
+    # 신규 피처: 타선 vs 선발투수 상대전적 (KBO + MLB)
+    home_lineup_vs_sp = await get_batter_vs_pitcher_stats(
+        db, game.home_team_id, game.away_starter_name, league, cutoff_date
+    )
+    away_lineup_vs_sp = await get_batter_vs_pitcher_stats(
+        db, game.away_team_id, game.home_starter_name, league, cutoff_date
+    )
 
     # --- 피처 딕셔너리 조합 ---
     snapshot = {
@@ -776,7 +775,7 @@ async def _get_kbo_starter_recent_stats(
         if recent[0] is not None:
             return recent
 
-    stats = await get_db_pitcher_stats(db, name, team_short, season)
+    stats = await get_db_pitcher_stats(db, name, team_short, season, before_date=before_date)
     if stats and stats.get("recent_era") is not None:
         return stats.get("recent_era"), stats.get("recent_whip")
 

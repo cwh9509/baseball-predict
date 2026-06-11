@@ -266,7 +266,7 @@ async def get_batter_vs_pitcher_stats(
     seasons: int = 2,
 ) -> dict:
     """
-    MLB 전용: 타선 vs 특정 선발투수 상대전적 (경기 기반 근사)
+    KBO/MLB: 타선 vs 특정 선발투수 상대전적 (경기 기반 근사)
     선발투수가 등판한 경기에서 해당 타선의 득점 패턴
     Returns: {
         "games": 경기수,

@@ -23,7 +23,9 @@ from app.models.kbo_player_stats import KboPlayerGameStat, KboPlayerSeasonStat
 logger = logging.getLogger(__name__)
 
 USE_DB_PITCHER_MIN_IP = 5.0
+USE_DB_PITCHER_LOOKUP_MIN_IP = 1.0  # 예측 조회용 (집계 source=db 판정은 5IP 유지)
 USE_DB_BATTER_MIN_PA = 15
+USE_DB_BATTER_SPLIT_MIN_PA = 8
 RECENT_PITCHER_DAYS = 14
 
 
@@ -442,17 +444,133 @@ async def _upsert_pitcher_season(db, season, name, team_short, lines: list) -> N
     await db.execute(stmt)
 
 
+def _aggregate_batting_from_game_rows(rows) -> tuple[int, Optional[float]]:
+    if not rows:
+        return 0, None
+    pa = sum(r.pa for r in rows)
+    ab = sum(r.ab for r in rows)
+    hits = sum(r.hits for r in rows)
+    doubles = sum(r.doubles for r in rows)
+    triples = sum(r.triples for r in rows)
+    hr = sum(r.hr for r in rows)
+    bb = sum(r.bb for r in rows)
+    hbp = sum(r.hbp for r in rows)
+    sf = sum(r.sf for r in rows)
+    return pa, _calc_ops(ab, hits, doubles, triples, hr, bb, hbp, sf)
+
+
+def _aggregate_pitching_from_game_rows(rows) -> Optional[dict]:
+    if not rows:
+        return None
+    ip = sum(r.ip for r in rows)
+    if ip < USE_DB_PITCHER_LOOKUP_MIN_IP:
+        return None
+    er = sum(r.er for r in rows)
+    hits_allowed = sum(r.hits_allowed for r in rows)
+    bb_allowed = sum(r.bb_allowed for r in rows)
+    so_pitched = sum(r.so_pitched for r in rows)
+    era, whip, k9 = _calc_pitching_rates(ip, er, hits_allowed, bb_allowed, so_pitched)
+    return {"era": era, "whip": whip, "k9": k9, "ip": ip, "source": "games"}
+
+
+def _name_variants(name: str) -> list[str]:
+    import unicodedata
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in (name, unicodedata.normalize("NFC", name), _normalize_name(name)):
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+async def get_db_pitcher_stats_from_games(
+    db: AsyncSession,
+    name: str,
+    team_short: str,
+    season: int,
+    before_date: Optional[date] = None,
+) -> Optional[dict]:
+    """시즌 테이블에 없을 때 박스스코어 경기 로그에서 투수 스탯 집계"""
+    for n in _name_variants(name):
+        conds = [
+            KboPlayerGameStat.season == season,
+            KboPlayerGameStat.player_name == n,
+            KboPlayerGameStat.role == "pitcher",
+            KboPlayerGameStat.ip > 0,
+        ]
+        if team_short:
+            conds.append(KboPlayerGameStat.team_short == team_short)
+        if before_date:
+            conds.append(KboPlayerGameStat.game_date < before_date)
+        rows = (await db.execute(select(KboPlayerGameStat).where(and_(*conds)))).scalars().all()
+        if not rows and team_short:
+            conds_fallback = [
+                KboPlayerGameStat.season == season,
+                KboPlayerGameStat.player_name == n,
+                KboPlayerGameStat.role == "pitcher",
+                KboPlayerGameStat.ip > 0,
+            ]
+            if before_date:
+                conds_fallback.append(KboPlayerGameStat.game_date < before_date)
+            rows = (await db.execute(select(KboPlayerGameStat).where(and_(*conds_fallback)))).scalars().all()
+        agg = _aggregate_pitching_from_game_rows(rows)
+        if agg:
+            return agg
+    return None
+
+
+async def get_db_batter_split_ops(
+    db: AsyncSession,
+    name: str,
+    team_short: str,
+    season: int,
+    throws: str,
+    before_date: Optional[date] = None,
+) -> Optional[float]:
+    """박스스코어 opponent_sp_throws 기준 타자 vs LHP/RHP OPS"""
+    if throws not in ("L", "R"):
+        return None
+    for n in _name_variants(name):
+        conds = [
+            KboPlayerGameStat.season == season,
+            KboPlayerGameStat.player_name == n,
+            KboPlayerGameStat.role == "batter",
+            KboPlayerGameStat.opponent_sp_throws == throws,
+            KboPlayerGameStat.pa > 0,
+        ]
+        if team_short:
+            conds.append(KboPlayerGameStat.team_short == team_short)
+        if before_date:
+            conds.append(KboPlayerGameStat.game_date < before_date)
+        rows = (await db.execute(select(KboPlayerGameStat).where(and_(*conds)))).scalars().all()
+        if not rows and team_short:
+            conds_fallback = [
+                KboPlayerGameStat.season == season,
+                KboPlayerGameStat.player_name == n,
+                KboPlayerGameStat.role == "batter",
+                KboPlayerGameStat.opponent_sp_throws == throws,
+                KboPlayerGameStat.pa > 0,
+            ]
+            if before_date:
+                conds_fallback.append(KboPlayerGameStat.game_date < before_date)
+            rows = (await db.execute(select(KboPlayerGameStat).where(and_(*conds_fallback)))).scalars().all()
+        pa, ops = _aggregate_batting_from_game_rows(rows)
+        if pa >= USE_DB_BATTER_SPLIT_MIN_PA and ops is not None:
+            return ops
+    return None
+
+
 async def get_db_pitcher_stats(
     db: AsyncSession,
     name: str,
     team_short: str,
     season: int,
+    before_date: Optional[date] = None,
 ) -> Optional[dict]:
-    """자체 DB 시즌 스탯 (db 소스 우선, statiz 시드 폴백)"""
-    import unicodedata
-    names = [name, unicodedata.normalize("NFC", name)]
-    for s in [season, season - 1]:
-        for n in names:
+    """자체 DB 시즌 스탯 (db 소스 우선, statiz 시드 폴백, 경기 로그 폴백)"""
+    for n in _name_variants(name):
+        for s in [season, season - 1]:
             row = (await db.execute(
                 select(KboPlayerSeasonStat).where(
                     and_(
@@ -485,6 +603,16 @@ async def get_db_pitcher_stats(
                     "recent_whip": row.recent_whip,
                     "source": "db",
                 }
+            if row.source == "db" and row.ip >= USE_DB_PITCHER_LOOKUP_MIN_IP and row.era is not None:
+                return {
+                    "era": row.era,
+                    "whip": row.whip,
+                    "k9": row.k9,
+                    "handedness": row.handedness,
+                    "recent_era": row.recent_era,
+                    "recent_whip": row.recent_whip,
+                    "source": "db_partial",
+                }
             if row.source == "statiz" and row.era is not None:
                 return {
                     "era": row.era,
@@ -495,6 +623,17 @@ async def get_db_pitcher_stats(
                     "recent_whip": row.recent_whip,
                     "source": "statiz",
                 }
+    game_stats = await get_db_pitcher_stats_from_games(db, name, team_short, season, before_date)
+    if game_stats:
+        return {
+            "era": game_stats["era"],
+            "whip": game_stats["whip"],
+            "k9": game_stats["k9"],
+            "handedness": None,
+            "recent_era": None,
+            "recent_whip": None,
+            "source": "games",
+        }
     return None
 
 
