@@ -1,0 +1,37 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "화이트", "team_short": "한화", "handedness": "R"},
+    {"name": "오웬화이트", "team_short": "한화", "handedness": "R"},
+    {"name": "에르난데스", "team_short": "한화", "handedness": "R"},
+    {"name": "윌켈에르난데스", "team_short": "한화", "handedness": "R"},
+    {"name": "왕옌청", "team_short": "한화", "handedness": "L"},
+    {"name": "류현진", "team_short": "한화", "handedness": "L"},
+    {"name": "문동주", "team_short": "한화", "handedness": "R"},
+
+    {"name": "황준서", "team_short": "한화", "handedness": "L"},
+    {"name": "정우주", "team_short": "한화", "handedness": "R"},
+    {"name": "박준영", "team_short": "한화", "handedness": "R"},
+    {"name": "쿠싱", "team_short": "한화", "handedness": "R"},
+    {"name": "존쿠싱", "team_short": "한화", "handedness": "R"},
+
+    {"name": "이민우", "team_short": "한화", "handedness": "R"},
+    {"name": "박상원", "team_short": "한화", "handedness": "R"},
+    {"name": "김서현", "team_short": "한화", "handedness": "R"},
+    {"name": "강재민", "team_short": "한화", "handedness": "R"},
+    {"name": "주현상", "team_short": "한화", "handedness": "R"},
+    {"name": "엄상백", "team_short": "한화", "handedness": "R"},
+    {"name": "조동욱", "team_short": "한화", "handedness": "L"},
+    {"name": "이상규", "team_short": "한화", "handedness": "R"},
+    {"name": "김종수", "team_short": "한화", "handedness": "R"},
+    {"name": "윤산흠", "team_short": "한화", "handedness": "R"},
+    {"name": "권민규", "team_short": "한화", "handedness": "L"},
+    {"name": "원종혁", "team_short": "한화", "handedness": "R"},
+    {"name": "김도빈", "team_short": "한화", "handedness": "R"},
+    {"name": "이교훈", "team_short": "한화", "handedness": "L"},
+
+    {"name": "강건우", "team_short": "한화", "handedness": "L"},
+    {"name": "김범준", "team_short": "한화", "handedness": "R"},
+    {"name": "박재규", "team_short": "한화", "handedness": "R"}
+  ]
+}

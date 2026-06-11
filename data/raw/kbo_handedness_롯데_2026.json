@@ -1,0 +1,32 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "비슬리", "team_short": "롯데", "handedness": "R"},
+    {"name": "제레미비슬리", "team_short": "롯데", "handedness": "R"},
+    {"name": "로드리게스", "team_short": "롯데", "handedness": "R"},
+    {"name": "엘빈로드리게스", "team_short": "롯데", "handedness": "R"},
+    {"name": "박세웅", "team_short": "롯데", "handedness": "R"},
+    {"name": "나균안", "team_short": "롯데", "handedness": "R"},
+    {"name": "김진욱", "team_short": "롯데", "handedness": "L"},
+
+    {"name": "이민석", "team_short": "롯데", "handedness": "R"},
+
+    {"name": "최준용", "team_short": "롯데", "handedness": "R"},
+    {"name": "김원중", "team_short": "롯데", "handedness": "R"},
+    {"name": "정철원", "team_short": "롯데", "handedness": "R"},
+    {"name": "구승민", "team_short": "롯데", "handedness": "R"},
+    {"name": "박정민", "team_short": "롯데", "handedness": "R"},
+    {"name": "최이준", "team_short": "롯데", "handedness": "R"},
+    {"name": "쿄야마", "team_short": "롯데", "handedness": "R"},
+    {"name": "쿄야마마사야", "team_short": "롯데", "handedness": "R"},
+    {"name": "김강현", "team_short": "롯데", "handedness": "R"},
+    {"name": "이승헌", "team_short": "롯데", "handedness": "R"},
+    {"name": "정현수", "team_short": "롯데", "handedness": "L"},
+    {"name": "이영재", "team_short": "롯데", "handedness": "L"},
+    {"name": "박세진", "team_short": "롯데", "handedness": "L"},
+
+    {"name": "박준우", "team_short": "롯데", "handedness": "R"},
+    {"name": "이진하", "team_short": "롯데", "handedness": "R"},
+    {"name": "윤성빈", "team_short": "롯데", "handedness": "R"}
+  ]
+}

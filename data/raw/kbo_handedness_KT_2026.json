@@ -1,0 +1,32 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "사우어", "team_short": "KT", "handedness": "R"},
+    {"name": "매튜사우어", "team_short": "KT", "handedness": "R"},
+    {"name": "부슬리", "team_short": "KT", "handedness": "R"},
+    {"name": "케일럽부슬리", "team_short": "KT", "handedness": "R"},
+    {"name": "고영표", "team_short": "KT", "handedness": "R"},
+    {"name": "소형준", "team_short": "KT", "handedness": "R"},
+    {"name": "오원석", "team_short": "KT", "handedness": "L"},
+
+    {"name": "배제성", "team_short": "KT", "handedness": "R"},
+    {"name": "문용익", "team_short": "KT", "handedness": "R"},
+    {"name": "한차현", "team_short": "KT", "handedness": "R"},
+
+    {"name": "박영현", "team_short": "KT", "handedness": "R"},
+    {"name": "한승혁", "team_short": "KT", "handedness": "R"},
+    {"name": "스기모토", "team_short": "KT", "handedness": "R"},
+    {"name": "스기모토코우키", "team_short": "KT", "handedness": "R"},
+    {"name": "손동현", "team_short": "KT", "handedness": "R"},
+    {"name": "김민수", "team_short": "KT", "handedness": "R"},
+    {"name": "전용주", "team_short": "KT", "handedness": "L"},
+    {"name": "주권", "team_short": "KT", "handedness": "R"},
+    {"name": "우규민", "team_short": "KT", "handedness": "R"},
+
+    {"name": "김정운", "team_short": "KT", "handedness": "R"},
+    {"name": "한승주", "team_short": "KT", "handedness": "R"},
+    {"name": "이상동", "team_short": "KT", "handedness": "R"},
+    {"name": "박지훈", "team_short": "KT", "handedness": "R"},
+    {"name": "임준형", "team_short": "KT", "handedness": "L"}
+  ]
+}

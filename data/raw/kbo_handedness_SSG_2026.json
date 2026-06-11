@@ -1,0 +1,32 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "화이트", "team_short": "SSG", "handedness": "R"},
+    {"name": "미치화이트", "team_short": "SSG", "handedness": "R"},
+    {"name": "김광현", "team_short": "SSG", "handedness": "L"},
+    {"name": "앤더슨", "team_short": "SSG", "handedness": "R"},
+    {"name": "드류앤더슨", "team_short": "SSG", "handedness": "R"},
+    {"name": "김건우", "team_short": "SSG", "handedness": "L"},
+    {"name": "최민준", "team_short": "SSG", "handedness": "R"},
+
+    {"name": "전영준", "team_short": "SSG", "handedness": "R"},
+    {"name": "긴지로", "team_short": "SSG", "handedness": "L"},
+    {"name": "히라모토긴지로", "team_short": "SSG", "handedness": "L"},
+    {"name": "박종훈", "team_short": "SSG", "handedness": "R"},
+
+    {"name": "조병현", "team_short": "SSG", "handedness": "R"},
+    {"name": "서진용", "team_short": "SSG", "handedness": "R"},
+    {"name": "노경은", "team_short": "SSG", "handedness": "R"},
+    {"name": "문승원", "team_short": "SSG", "handedness": "R"},
+    {"name": "이로운", "team_short": "SSG", "handedness": "R"},
+    {"name": "한두솔", "team_short": "SSG", "handedness": "L"},
+    {"name": "박시후", "team_short": "SSG", "handedness": "L"},
+    {"name": "장지훈", "team_short": "SSG", "handedness": "R"},
+    {"name": "이건욱", "team_short": "SSG", "handedness": "R"},
+    {"name": "최용준", "team_short": "SSG", "handedness": "R"},
+    {"name": "김도현", "team_short": "SSG", "handedness": "R"},
+    {"name": "정동윤", "team_short": "SSG", "handedness": "R"},
+    {"name": "김택형", "team_short": "SSG", "handedness": "L"},
+    {"name": "이준기", "team_short": "SSG", "handedness": "R"}
+  ]
+}

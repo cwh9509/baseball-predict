@@ -152,6 +152,93 @@ async def upload_stats(payload: UploadStatsPayload, db: AsyncSession = Depends(g
     }
 
 
+class PitcherHandednessIn(BaseModel):
+    name: str
+    team_short: str
+    handedness: str  # "L" or "R"
+
+
+class UploadHandednessPayload(BaseModel):
+    season: int
+    pitchers: List[PitcherHandednessIn]
+
+
+@router.post("/upload-handedness")
+async def upload_handedness(payload: UploadHandednessPayload, db: AsyncSession = Depends(get_db)):
+    """투수 좌/우손만 등록 (ERA 등 기존 백필 스탯은 유지)"""
+    from sqlalchemy import select, update
+    from app.models.kbo_stats import KboPitcherStat
+    from app.models.kbo_player_stats import KboPlayerSeasonStat
+
+    season = payload.season
+    hand = {"L", "R"}
+    updated_pitcher = 0
+    inserted_pitcher = 0
+    updated_player = 0
+
+    for p in payload.pitchers:
+        h = p.handedness.upper()
+        if h not in hand:
+            continue
+        if h == "L":
+            h = "L"
+        else:
+            h = "R"
+
+        existing = (await db.execute(
+            select(KboPitcherStat).where(
+                KboPitcherStat.season == season,
+                KboPitcherStat.name == p.name,
+                KboPitcherStat.team_short == p.team_short,
+            )
+        )).scalar_one_or_none()
+
+        if existing:
+            existing.handedness = h
+            updated_pitcher += 1
+        else:
+            await db.execute(
+                insert(KboPitcherStat).values(
+                    season=season,
+                    name=p.name,
+                    team_short=p.team_short,
+                    era=4.50,
+                    whip=1.35,
+                    k9=7.0,
+                    ip=1.0,
+                    gs=0,
+                    handedness=h,
+                )
+            )
+            inserted_pitcher += 1
+
+        ps_result = await db.execute(
+            update(KboPlayerSeasonStat)
+            .where(
+                KboPlayerSeasonStat.season == season,
+                KboPlayerSeasonStat.name == p.name,
+                KboPlayerSeasonStat.team_short == p.team_short,
+                KboPlayerSeasonStat.role == "pitcher",
+            )
+            .values(handedness=h)
+        )
+        updated_player += ps_result.rowcount
+
+    await db.commit()
+    logger.info(
+        f"handedness 업로드: season={season}, "
+        f"pitcher_stats 갱신={updated_pitcher} 신규={inserted_pitcher}, "
+        f"player_season 갱신={updated_player}"
+    )
+    return {
+        "status": "ok",
+        "season": season,
+        "pitcher_stats_updated": updated_pitcher,
+        "pitcher_stats_inserted": inserted_pitcher,
+        "player_season_updated": updated_player,
+    }
+
+
 @router.post("/retrain")
 async def trigger_retrain(league: str = Query(default=None)):
     """모델 수동 재학습 트리거. league=MLB 로 지정 가능 (기본: 설정값)"""

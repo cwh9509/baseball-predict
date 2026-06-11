@@ -1,0 +1,37 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "라일리", "team_short": "NC", "handedness": "R"},
+    {"name": "라일리톰슨", "team_short": "NC", "handedness": "R"},
+    {"name": "테일러", "team_short": "NC", "handedness": "R"},
+    {"name": "커티스테일러", "team_short": "NC", "handedness": "R"},
+    {"name": "토다", "team_short": "NC", "handedness": "R"},
+    {"name": "토다나츠키", "team_short": "NC", "handedness": "R"},
+    {"name": "구창모", "team_short": "NC", "handedness": "L"},
+    {"name": "신민혁", "team_short": "NC", "handedness": "R"},
+
+    {"name": "버하겐", "team_short": "NC", "handedness": "R"},
+    {"name": "드류버하겐", "team_short": "NC", "handedness": "R"},
+    {"name": "김태경", "team_short": "NC", "handedness": "R"},
+    {"name": "신영우", "team_short": "NC", "handedness": "R"},
+    {"name": "목지훈", "team_short": "NC", "handedness": "R"},
+
+    {"name": "천사민", "team_short": "NC", "handedness": "R"},
+    {"name": "배재환", "team_short": "NC", "handedness": "R"},
+    {"name": "임지민", "team_short": "NC", "handedness": "R"},
+    {"name": "김진호", "team_short": "NC", "handedness": "R"},
+    {"name": "류진욱", "team_short": "NC", "handedness": "R"},
+    {"name": "김영규", "team_short": "NC", "handedness": "L"},
+    {"name": "이준혁", "team_short": "NC", "handedness": "R"},
+    {"name": "임정호", "team_short": "NC", "handedness": "L"},
+    {"name": "원종해", "team_short": "NC", "handedness": "R"},
+    {"name": "이용준", "team_short": "NC", "handedness": "R"},
+    {"name": "하준영", "team_short": "NC", "handedness": "L"},
+    {"name": "박지한", "team_short": "NC", "handedness": "L"},
+    {"name": "최우석", "team_short": "NC", "handedness": "R"},
+    {"name": "최요한", "team_short": "NC", "handedness": "L"},
+
+    {"name": "손주환", "team_short": "NC", "handedness": "R"},
+    {"name": "김준원", "team_short": "NC", "handedness": "R"}
+  ]
+}

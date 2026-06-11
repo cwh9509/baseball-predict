@@ -1,0 +1,34 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "치리노스", "team_short": "LG", "handedness": "R"},
+    {"name": "리오스", "team_short": "LG", "handedness": "R"},
+    {"name": "톨허스트", "team_short": "LG", "handedness": "R"},
+    {"name": "웰스", "team_short": "LG", "handedness": "L"},
+    {"name": "임찬규", "team_short": "LG", "handedness": "R"},
+    {"name": "송승기", "team_short": "LG", "handedness": "L"},
+
+    {"name": "이정용", "team_short": "LG", "handedness": "R"},
+    {"name": "김윤식", "team_short": "LG", "handedness": "L"},
+    {"name": "이상영", "team_short": "LG", "handedness": "L"},
+
+    {"name": "유영찬", "team_short": "LG", "handedness": "R"},
+    {"name": "김진성", "team_short": "LG", "handedness": "R"},
+    {"name": "장현식", "team_short": "LG", "handedness": "R"},
+    {"name": "함덕주", "team_short": "LG", "handedness": "L"},
+    {"name": "김강률", "team_short": "LG", "handedness": "R"},
+    {"name": "김유영", "team_short": "LG", "handedness": "L"},
+    {"name": "이우찬", "team_short": "LG", "handedness": "L"},
+    {"name": "손주영", "team_short": "LG", "handedness": "L"},
+    {"name": "우강훈", "team_short": "LG", "handedness": "R"},
+    {"name": "김영우", "team_short": "LG", "handedness": "R"},
+    {"name": "김진수", "team_short": "LG", "handedness": "R"},
+    {"name": "배재준", "team_short": "LG", "handedness": "R"},
+    {"name": "박시원", "team_short": "LG", "handedness": "R"},
+    {"name": "성동현", "team_short": "LG", "handedness": "R"},
+    {"name": "백승현", "team_short": "LG", "handedness": "R"},
+    {"name": "이종준", "team_short": "LG", "handedness": "R"},
+    {"name": "조건희", "team_short": "LG", "handedness": "L"},
+    {"name": "이민호", "team_short": "LG", "handedness": "R"}
+  ]
+}

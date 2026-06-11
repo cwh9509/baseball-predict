@@ -381,11 +381,15 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     away_sp_recent_whip = None
     if league == "KBO":
         if home_team_obj and game.home_starter_name:
-            recent = await _get_kbo_starter_recent_stats(db, game.home_starter_name, home_team_obj.short_name, season)
+            recent = await _get_kbo_starter_recent_stats(
+                db, game.home_starter_name, home_team_obj.short_name, season, cutoff_date,
+            )
             home_sp_recent_era = recent[0]
             home_sp_recent_whip = recent[1]
         if away_team_obj and game.away_starter_name:
-            recent = await _get_kbo_starter_recent_stats(db, game.away_starter_name, away_team_obj.short_name, season)
+            recent = await _get_kbo_starter_recent_stats(
+                db, game.away_starter_name, away_team_obj.short_name, season, cutoff_date,
+            )
             away_sp_recent_era = recent[0]
             away_sp_recent_whip = recent[1]
 
@@ -756,11 +760,26 @@ async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: s
 
 
 async def _get_kbo_starter_recent_stats(
-    db: AsyncSession, name: str, team_short: str, season: int
+    db: AsyncSession,
+    name: str,
+    team_short: str,
+    season: int,
+    before_date: Optional[date] = None,
 ) -> tuple[Optional[float], Optional[float]]:
-    """KBO 선발투수 최근 14일 ERA, WHIP 조회. 없으면 (None, None)"""
+    """KBO 선발투수 최근 14일 ERA/WHIP — 박스스코어 DB 우선"""
+    from app.pipeline.player_stats_aggregator import get_db_pitcher_recent_stats, get_db_pitcher_stats
     from app.models.kbo_stats import KboPitcherStat
     from sqlalchemy import and_
+
+    if before_date:
+        recent = await get_db_pitcher_recent_stats(db, name, team_short, season, before_date)
+        if recent[0] is not None:
+            return recent
+
+    stats = await get_db_pitcher_stats(db, name, team_short, season)
+    if stats and stats.get("recent_era") is not None:
+        return stats.get("recent_era"), stats.get("recent_whip")
+
     for s in [season, season - 1]:
         for cond in [
             and_(KboPitcherStat.name == name, KboPitcherStat.team_short == team_short, KboPitcherStat.season == s),

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 USE_DB_PITCHER_MIN_IP = 5.0
 USE_DB_BATTER_MIN_PA = 15
+RECENT_PITCHER_DAYS = 14
 
 
 def _normalize_name(name: str) -> str:
@@ -50,6 +51,30 @@ def _calc_pitching_rates(ip, er, hits_allowed, bb_allowed, so_pitched) -> tuple[
     whip = round((hits_allowed + bb_allowed) / ip, 2)
     k9 = round(so_pitched * 9.0 / ip, 2)
     return era, whip, k9
+
+
+def _recent_pitching_rates(
+    lines,
+    before_date: date,
+    days: int = RECENT_PITCHER_DAYS,
+) -> tuple[Optional[float], Optional[float]]:
+    """경기 전 기준 최근 N일(또는 최근 3경기) ERA/WHIP"""
+    start = before_date - timedelta(days=days)
+    recent = [l for l in lines if start <= l.game_date < before_date and l.ip > 0]
+    if not recent:
+        recent = sorted(
+            [l for l in lines if l.game_date < before_date and l.ip > 0],
+            key=lambda x: x.game_date,
+            reverse=True,
+        )[:3]
+    if not recent:
+        return None, None
+    r_ip = sum(l.ip for l in recent)
+    r_er = sum(l.er for l in recent)
+    r_h = sum(l.hits_allowed for l in recent)
+    r_bb = sum(l.bb_allowed for l in recent)
+    era, whip, _ = _calc_pitching_rates(r_ip, r_er, r_h, r_bb, 0)
+    return era, whip
 
 
 async def seed_season_from_statiz(db: AsyncSession, season: int) -> dict:
@@ -365,12 +390,8 @@ async def _upsert_pitcher_season(db, season, name, team_short, lines: list) -> N
     games = len(lines)
     era, whip, k9 = _calc_pitching_rates(ip, er, hits_allowed, bb_allowed, so_pitched)
 
-    recent_lines = sorted(lines, key=lambda x: x.game_date, reverse=True)[:3]
-    r_ip = sum(l.ip for l in recent_lines)
-    r_er = sum(l.er for l in recent_lines)
-    r_h = sum(l.hits_allowed for l in recent_lines)
-    r_bb = sum(l.bb_allowed for l in recent_lines)
-    recent_era, recent_whip, _ = _calc_pitching_rates(r_ip, r_er, r_h, r_bb, 0)
+    ref_date = max(l.game_date for l in lines) + timedelta(days=1)
+    recent_era, recent_whip = _recent_pitching_rates(lines, ref_date)
 
     existing = (await db.execute(
         select(KboPlayerSeasonStat).where(
@@ -461,6 +482,7 @@ async def get_db_pitcher_stats(
                     "k9": row.k9,
                     "handedness": row.handedness,
                     "recent_era": row.recent_era,
+                    "recent_whip": row.recent_whip,
                     "source": "db",
                 }
             if row.source == "statiz" and row.era is not None:
@@ -470,9 +492,36 @@ async def get_db_pitcher_stats(
                     "k9": row.k9,
                     "handedness": row.handedness,
                     "recent_era": row.recent_era,
+                    "recent_whip": row.recent_whip,
                     "source": "statiz",
                 }
     return None
+
+
+async def get_db_pitcher_recent_stats(
+    db: AsyncSession,
+    name: str,
+    team_short: str,
+    season: int,
+    before_date: date,
+) -> tuple[Optional[float], Optional[float]]:
+    """박스스코어 경기 로그 기준 최근 14일 ERA/WHIP (해당 경기일 이전만)"""
+    import unicodedata
+    names = [name, unicodedata.normalize("NFC", name)]
+    for n in names:
+        rows = (await db.execute(
+            select(KboPlayerGameStat).where(
+                and_(
+                    KboPlayerGameStat.season == season,
+                    KboPlayerGameStat.player_name == n,
+                    KboPlayerGameStat.role == "pitcher",
+                    KboPlayerGameStat.game_date < before_date,
+                )
+            )
+        )).scalars().all()
+        if rows:
+            return _recent_pitching_rates(rows, before_date)
+    return None, None
 
 
 async def get_db_batter_ops(

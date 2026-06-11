@@ -1,0 +1,33 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "네일", "team_short": "KIA", "handedness": "R"},
+    {"name": "제임스네일", "team_short": "KIA", "handedness": "R"},
+    {"name": "올러", "team_short": "KIA", "handedness": "R"},
+    {"name": "아담올러", "team_short": "KIA", "handedness": "R"},
+    {"name": "양현종", "team_short": "KIA", "handedness": "L"},
+    {"name": "이의리", "team_short": "KIA", "handedness": "L"},
+
+    {"name": "김태형", "team_short": "KIA", "handedness": "R"},
+    {"name": "시라카와", "team_short": "KIA", "handedness": "R"},
+    {"name": "시라카와케이쇼", "team_short": "KIA", "handedness": "R"},
+
+    {"name": "성영탁", "team_short": "KIA", "handedness": "R"},
+    {"name": "조상우", "team_short": "KIA", "handedness": "R"},
+    {"name": "정해영", "team_short": "KIA", "handedness": "R"},
+    {"name": "최지민", "team_short": "KIA", "handedness": "L"},
+    {"name": "김범수", "team_short": "KIA", "handedness": "L"},
+    {"name": "전상현", "team_short": "KIA", "handedness": "R"},
+    {"name": "이태양", "team_short": "KIA", "handedness": "R"},
+    {"name": "이형범", "team_short": "KIA", "handedness": "R"},
+    {"name": "곽도규", "team_short": "KIA", "handedness": "L"},
+    {"name": "한재승", "team_short": "KIA", "handedness": "R"},
+    {"name": "김기훈", "team_short": "KIA", "handedness": "L"},
+
+    {"name": "김건국", "team_short": "KIA", "handedness": "R"},
+    {"name": "홍건희", "team_short": "KIA", "handedness": "R"},
+    {"name": "장재혁", "team_short": "KIA", "handedness": "R"},
+    {"name": "김시훈", "team_short": "KIA", "handedness": "R"},
+    {"name": "김현수", "team_short": "KIA", "handedness": "R"}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "매닝", "team_short": "삼성", "handedness": "R"},
+    {"name": "매튜매닝", "team_short": "삼성", "handedness": "R"},
+    {"name": "오러클린", "team_short": "삼성", "handedness": "L"},
+    {"name": "잭오러클린", "team_short": "삼성", "handedness": "L"},
+    {"name": "최원태", "team_short": "삼성", "handedness": "R"},
+    {"name": "원태인", "team_short": "삼성", "handedness": "R"},
+    {"name": "양창섭", "team_short": "삼성", "handedness": "R"},
+
+    {"name": "장찬희", "team_short": "삼성", "handedness": "R"},
+    {"name": "이승현", "team_short": "삼성", "handedness": "L"},
+
+    {"name": "김재윤", "team_short": "삼성", "handedness": "R"},
+    {"name": "이승민", "team_short": "삼성", "handedness": "L"},
+    {"name": "배찬승", "team_short": "삼성", "handedness": "L"},
+    {"name": "미야지", "team_short": "삼성", "handedness": "R"},
+    {"name": "미야지유라", "team_short": "삼성", "handedness": "R"},
+    {"name": "임기영", "team_short": "삼성", "handedness": "R"},
+    {"name": "최지광", "team_short": "삼성", "handedness": "R"},
+    {"name": "백정현", "team_short": "삼성", "handedness": "L"},
+    {"name": "이재희", "team_short": "삼성", "handedness": "R"},
+    {"name": "김태훈", "team_short": "삼성", "handedness": "R"},
+    {"name": "육선엽", "team_short": "삼성", "handedness": "R"},
+    {"name": "김무신", "team_short": "삼성", "handedness": "R"},
+    {"name": "정재훈", "team_short": "삼성", "handedness": "R"},
+    {"name": "양현", "team_short": "삼성", "handedness": "R"}
+  ]
+}

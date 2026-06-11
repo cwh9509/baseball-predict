@@ -1,0 +1,34 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "로그", "team_short": "두산", "handedness": "L"},
+    {"name": "잭로그", "team_short": "두산", "handedness": "L"},
+    {"name": "벤자민", "team_short": "두산", "handedness": "L"},
+    {"name": "웨스벤자민", "team_short": "두산", "handedness": "L"},
+    {"name": "곽빈", "team_short": "두산", "handedness": "R"},
+    {"name": "최승용", "team_short": "두산", "handedness": "L"},
+    {"name": "최민석", "team_short": "두산", "handedness": "R"},
+
+    {"name": "플렉센", "team_short": "두산", "handedness": "R"},
+    {"name": "크리스토퍼플렉센", "team_short": "두산", "handedness": "R"},
+    {"name": "최준호", "team_short": "두산", "handedness": "R"},
+    {"name": "박신지", "team_short": "두산", "handedness": "R"},
+
+    {"name": "이영하", "team_short": "두산", "handedness": "R"},
+    {"name": "이병헌", "team_short": "두산", "handedness": "L"},
+    {"name": "김정우", "team_short": "두산", "handedness": "R"},
+    {"name": "양재훈", "team_short": "두산", "handedness": "R"},
+    {"name": "박치국", "team_short": "두산", "handedness": "R"},
+    {"name": "타무라", "team_short": "두산", "handedness": "R"},
+    {"name": "타무라이치로", "team_short": "두산", "handedness": "R"},
+    {"name": "김택연", "team_short": "두산", "handedness": "R"},
+    {"name": "이용찬", "team_short": "두산", "handedness": "R"},
+    {"name": "윤태호", "team_short": "두산", "handedness": "R"},
+    {"name": "최지강", "team_short": "두산", "handedness": "R"},
+    {"name": "박정수", "team_short": "두산", "handedness": "R"},
+    {"name": "최주형", "team_short": "두산", "handedness": "L"},
+    {"name": "김동주", "team_short": "두산", "handedness": "R"},
+    {"name": "김명신", "team_short": "두산", "handedness": "R"},
+    {"name": "최원준", "team_short": "두산", "handedness": "R"}
+  ]
+}

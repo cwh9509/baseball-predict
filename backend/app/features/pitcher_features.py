@@ -53,6 +53,9 @@ async def get_kbo_starter_stats(
                 "era": db_stats["era"],
                 "whip": db_stats["whip"],
                 "k9": db_stats["k9"],
+                "handedness": db_stats.get("handedness"),
+                "recent_era": db_stats.get("recent_era"),
+                "recent_whip": db_stats.get("recent_whip"),
             }
 
         from app.models.kbo_stats import KboPitcherStat

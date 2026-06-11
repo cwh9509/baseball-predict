@@ -1,0 +1,28 @@
+{
+  "season": 2026,
+  "pitchers": [
+    {"name": "알칸타라", "team_short": "키움", "handedness": "R"},
+    {"name": "라울알칸타라", "team_short": "키움", "handedness": "R"},
+    {"name": "안우진", "team_short": "키움", "handedness": "R"},
+    {"name": "배동현", "team_short": "키움", "handedness": "R"},
+    {"name": "하영민", "team_short": "키움", "handedness": "R"},
+
+    {"name": "정세영", "team_short": "키움", "handedness": "L"},
+
+    {"name": "유토", "team_short": "키움", "handedness": "R"},
+    {"name": "가나쿠보유토", "team_short": "키움", "handedness": "R"},
+    {"name": "김재웅", "team_short": "키움", "handedness": "L"},
+    {"name": "박정훈", "team_short": "키움", "handedness": "L"},
+    {"name": "김성진", "team_short": "키움", "handedness": "R"},
+    {"name": "원종현", "team_short": "키움", "handedness": "R"},
+    {"name": "박진형", "team_short": "키움", "handedness": "R"},
+    {"name": "박준형", "team_short": "키움", "handedness": "R"},
+    {"name": "김서준", "team_short": "키움", "handedness": "R"},
+    {"name": "조영건", "team_short": "키움", "handedness": "R"},
+    {"name": "박지성", "team_short": "키움", "handedness": "R"},
+    {"name": "정다훈", "team_short": "키움", "handedness": "R"},
+    {"name": "이준우", "team_short": "키움", "handedness": "R"},
+    {"name": "전준표", "team_short": "키움", "handedness": "R"},
+    {"name": "윤석원", "team_short": "키움", "handedness": "L"}
+  ]
+}
