@@ -111,6 +111,9 @@ class Predictor:
             logger.warning(f"game_id={game_id} 피처 생성 실패: {e}")
             return None
 
+        lg_key = game.league if game.league in self._score_models else "default"
+        home_score_model, away_score_model, _ = self._score_models.get(lg_key, (None, None, None))
+
         score_features = to_score_frame(feature_array, game.league)
         classifier_features = to_classifier_frame(
             np.append(feature_array, 0.0), game.league
@@ -133,9 +136,6 @@ class Predictor:
         predicted_home_score = None
         predicted_away_score = None
         score_diff = 0.0
-        lg_key = game.league if game.league in self._score_models else "default"
-        score_tuple = self._score_models.get(lg_key, (None, None, None))
-        home_score_model, away_score_model, _ = score_tuple
         if home_score_model is not None and away_score_model is not None:
             try:
                 predicted_home_score = max(0, round(float(home_score_model.predict(score_features)[0])))
