@@ -33,13 +33,20 @@ async def run(season: int) -> None:
 
     logger.info(f"[stats_upload] season={season} 스크래핑 시작")
     with httpx.Client(timeout=30, follow_redirects=True, headers=BASE_HEADERS) as client:
-        if not statiz_login(client):
-            logger.error("[stats_upload] statiz 로그인 실패 — STATIZ_ID/STATIZ_PW 환경변수 확인")
+        if not statiz_login(client, season=season):
+            logger.error(
+                "[stats_upload] statiz 로그인 실패 — Railway Variables에 STATIZ_ID/STATIZ_PW 확인, "
+                f"브라우저에서 statiz.co.kr {season} 투수 스탯 페이지 접속 가능한지 확인"
+            )
             return
 
         pitchers = scrape_pitchers(client, season)
         if not pitchers:
-            logger.error("[stats_upload] 투수 스탯 수집 실패")
+            client.cookies.clear()
+            if statiz_login(client, season=season):
+                pitchers = scrape_pitchers(client, season)
+        if not pitchers:
+            logger.error(f"[stats_upload] 투수 스탯 수집 실패 (season={season})")
             return
 
         recent_map = scrape_recent_pitcher_stats(client, season, days=14)
@@ -58,6 +65,16 @@ async def run(season: int) -> None:
     )
 
     await _upsert_to_db(season, pitchers, team_batting, team_bullpen)
+
+    # statiz → player_season_stats 시드 (이후 경기별 집계로 statiz 대체)
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.pipeline.player_stats_aggregator import seed_season_from_statiz
+        async with AsyncSessionLocal() as db:
+            await seed_season_from_statiz(db, season)
+    except Exception as e:
+        logger.warning(f"[stats_upload] player_season 시드 실패: {e}")
+
     logger.info("[stats_upload] DB 업로드 완료")
 
 

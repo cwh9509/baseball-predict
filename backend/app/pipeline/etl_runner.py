@@ -195,6 +195,13 @@ class ETLRunner:
                             """),
                             {"winner_id": game.winner_team_id, "game_id": game.id},
                         )
+                    # KBO: 경기 종료 후 Naver 박스스코어 → 자체 선수 스탯 집계
+                    if self.league == "KBO":
+                        try:
+                            from app.pipeline.player_stats_aggregator import ingest_final_game
+                            await ingest_final_game(db, game)
+                        except Exception as e:
+                            logger.warning(f"game_id={game.id} 선수 스탯 집계 실패: {e}")
             await db.commit()
             # Elo 캐시 무효화: 새 결과가 반영됐으므로 다음 예측 시 재빌드
             from app.features.elo_features import invalidate_elo_cache

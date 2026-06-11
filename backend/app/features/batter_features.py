@@ -279,10 +279,16 @@ async def _lookup_batter_ops(
     team_short: str,
     kbo_map: dict[tuple[str, str], float],
     mlb_map: dict[str, float],
+    db: Optional[AsyncSession] = None,
 ) -> Optional[float]:
     norm = _normalize_batter_name(name)
     if not norm:
         return None
+    if league == "KBO" and db is not None:
+        from app.pipeline.player_stats_aggregator import get_db_batter_ops
+        ops = await get_db_batter_ops(db, name, team_short, season)
+        if ops is not None:
+            return ops
     if league == "KBO":
         for s in [season, season - 1]:
             if s == season:
@@ -314,6 +320,7 @@ async def get_roster_lineup_features(
     team_short: str,
     prefix: str,
     team_fallback_ops: Optional[float] = None,
+    db: Optional[AsyncSession] = None,
 ) -> dict:
     """타순 1~9번 개별 OPS + 라인업 매칭률 피처
 
@@ -348,7 +355,7 @@ async def get_roster_lineup_features(
         name = by_order.get(i)
         ops = None
         if name:
-            ops = await _lookup_batter_ops(name, league, season, team_short, kbo_map, mlb_map)
+            ops = await _lookup_batter_ops(name, league, season, team_short, kbo_map, mlb_map, db=db)
             if ops is not None:
                 known += 1
             elif team_fallback_ops is not None:

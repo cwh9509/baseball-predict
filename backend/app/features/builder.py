@@ -425,10 +425,12 @@ async def build_features(db: AsyncSession, game_id: int) -> tuple[np.ndarray, di
     home_roster_feats = await get_roster_lineup_features(
         game.home_lineup_json, league, season, home_team_short, "home",
         team_fallback_ops=home_lineup.get("lineup_ops_mean"),
+        db=db,
     )
     away_roster_feats = await get_roster_lineup_features(
         game.away_lineup_json, league, season, away_team_short, "away",
         team_fallback_ops=away_lineup.get("lineup_ops_mean"),
+        db=db,
     )
 
     weather = await get_weather_features(db, game.id, game.home_team_id)
@@ -725,9 +727,22 @@ def _to_float(val) -> float:
 
 
 async def _get_kbo_pitcher_handedness(db: AsyncSession, name: str, team_short: str, season: int) -> Optional[str]:
-    """KBO 투수 투구 방향 조회 (L/R). statiz에서 수집한 handedness 필드."""
+    """KBO 투수 투구 방향 — 자체 DB 시즌 스탯 → statiz 폴백"""
+    from app.models.kbo_player_stats import KboPlayerSeasonStat
     from app.models.kbo_stats import KboPitcherStat
     from sqlalchemy import and_
+    for s in [season, season - 1]:
+        row = (await db.execute(
+            select(KboPlayerSeasonStat).where(
+                and_(
+                    KboPlayerSeasonStat.name == name,
+                    KboPlayerSeasonStat.role == "pitcher",
+                    KboPlayerSeasonStat.season == s,
+                )
+            )
+        )).scalar_one_or_none()
+        if row and row.handedness:
+            return row.handedness
     for s in [season, season - 1]:
         row = (await db.execute(
             select(KboPitcherStat).where(

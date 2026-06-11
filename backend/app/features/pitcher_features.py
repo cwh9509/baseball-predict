@@ -46,6 +46,15 @@ async def get_kbo_starter_stats(
     if not name:
         return None
     if db is not None:
+        from app.pipeline.player_stats_aggregator import get_db_pitcher_stats
+        db_stats = await get_db_pitcher_stats(db, name, team_short, season)
+        if db_stats:
+            return {
+                "era": db_stats["era"],
+                "whip": db_stats["whip"],
+                "k9": db_stats["k9"],
+            }
+
         from app.models.kbo_stats import KboPitcherStat
         for s in [season, season - 1]:
             for extra_cond in [

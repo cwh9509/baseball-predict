@@ -42,11 +42,21 @@ async def run(season: int) -> None:
 
         logger.info(f"[compute_splits] 대상 경기: {len(games)}경기 (최근 3시즌)")
 
-        # 2) 투수 handedness 조회 (이름 → L/R)
+        # 2) 투수 handedness 조회 (자체 DB → statiz 폴백)
+        hand_map: dict[str, str] = {}
+        from app.models.kbo_player_stats import KboPlayerSeasonStat
+        ps_rows = (await db.execute(
+            select(KboPlayerSeasonStat).where(
+                KboPlayerSeasonStat.role == "pitcher",
+                KboPlayerSeasonStat.handedness.isnot(None),
+            )
+        )).scalars().all()
+        for p in ps_rows:
+            if p.name not in hand_map:
+                hand_map[p.name] = p.handedness
         pitcher_rows = (await db.execute(
             select(KboPitcherStat).where(KboPitcherStat.handedness.isnot(None))
         )).scalars().all()
-        hand_map: dict[str, str] = {}  # name → "L" or "R"
         for p in pitcher_rows:
             if p.name not in hand_map:
                 hand_map[p.name] = p.handedness

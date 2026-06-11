@@ -455,6 +455,42 @@ async def trigger_compute_splits(season: int = Query(default=None)):
     return {"status": "started", "season": s}
 
 
+@router.post("/seed-player-stats")
+async def trigger_seed_player_stats(season: int = Query(default=None)):
+    """statiz 업로드 데이터 → kbo_player_season_stats 시드 (초기 1회)"""
+    from datetime import date as date_cls
+
+    s = season or date_cls.today().year
+
+    async def _run():
+        from app.core.database import AsyncSessionLocal
+        from app.pipeline.player_stats_aggregator import seed_season_from_statiz
+        async with AsyncSessionLocal() as db:
+            result = await seed_season_from_statiz(db, s)
+        logger.info(f"player_season 시드 완료 (season={s}): {result}")
+
+    _create_background_task(_run())
+    return {"status": "started", "season": s, "note": "기존 kbo_pitcher_stats/statiz 타자 캐시에서 시드"}
+
+
+@router.post("/backfill-player-stats")
+async def trigger_backfill_player_stats(season: int = Query(default=None)):
+    """종료된 KBO 경기 Naver 박스스코어 일괄 수집 → 자체 선수 스탯 집계"""
+    from datetime import date as date_cls
+
+    s = season or date_cls.today().year
+
+    async def _run():
+        from app.core.database import AsyncSessionLocal
+        from app.pipeline.player_stats_aggregator import backfill_from_final_games
+        async with AsyncSessionLocal() as db:
+            n = await backfill_from_final_games(db, s)
+        logger.info(f"player_stats 백필 완료 (season={s}): {n}경기")
+
+    _create_background_task(_run())
+    return {"status": "started", "season": s}
+
+
 @router.post("/collect-mlb-stats")
 async def trigger_collect_mlb_stats(
     season: int = Query(default=None),

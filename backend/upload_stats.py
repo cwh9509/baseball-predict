@@ -64,9 +64,39 @@ BASE_HEADERS = {
 }
 
 
-def statiz_login(client: httpx.Client) -> bool:
+def _statiz_page_needs_login(html: str) -> bool:
+    return "로그인 후 이용" in html or "location.href='/member/" in html
+
+
+def _statiz_page_has_table(html: str) -> bool:
+    from bs4 import BeautifulSoup
+    return BeautifulSoup(html, "lxml").find("table") is not None
+
+
+def _statiz_verify_session(client: httpx.Client, season: int) -> bool:
+    """실제 수집 대상 시즌 URL로 세션 유효성 확인"""
+    url = f"{STATIZ_STATS_URL}?m=main&m2=pitching&year={season}&ipp=10"
+    resp = client.get(url)
+    if resp.status_code != 200:
+        return False
+    if _statiz_page_needs_login(resp.text):
+        return False
+    return _statiz_page_has_table(resp.text)
+
+
+def statiz_login(client: httpx.Client, season: int | None = None) -> bool:
+    from datetime import date as date_cls
+    verify_season = season or date_cls.today().year
+
     uid = os.environ.get("STATIZ_ID", "")
     pw  = os.environ.get("STATIZ_PW", "")
+    if not uid or not pw:
+        try:
+            from app.config import settings
+            uid = uid or settings.statiz_id
+            pw = pw or settings.statiz_pw
+        except Exception:
+            pass
     if not uid or not pw:
         logger.error("STATIZ_ID / STATIZ_PW 환경변수 미설정")
         return False
@@ -77,9 +107,8 @@ def statiz_login(client: httpx.Client) -> bool:
             saved = json.loads(cookie_path.read_text())
             for name, value in saved.items():
                 client.cookies.set(name, value, domain="statiz.co.kr")
-            test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
-            if test.status_code == 200 and "로그인" not in test.text[:500]:
-                logger.info("저장된 쿠키로 세션 복원 성공")
+            if _statiz_verify_session(client, verify_season):
+                logger.info(f"저장된 쿠키로 세션 복원 성공 (season={verify_season})")
                 return True
             client.cookies.clear()
         except Exception:
@@ -102,23 +131,25 @@ def statiz_login(client: httpx.Client) -> bool:
         }
         resp = client.post(
             STATIZ_LOGIN_URL,
-            data={**hidden, "userID": uid, "userPassword": pw},
+            data={**hidden, "userID": uid, "userPassword": pw, "autoLogin": "Y"},
             headers={"Referer": f"{STATIZ_BASE_URL}/member/?m=login",
                      "Content-Type": "application/x-www-form-urlencoded"},
         )
         has_token = "access_token" in client.cookies or "PHPSESSID" in client.cookies
         if not has_token:
-            logger.error(f"로그인 실패 (status={resp.status_code})")
+            logger.error(f"로그인 실패 — 응답 쿠키 없음 (status={resp.status_code})")
             return False
 
-        test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
-        if test.status_code != 200:
-            logger.error(f"로그인 후 접근 실패: {test.status_code}")
+        if not _statiz_verify_session(client, verify_season):
+            logger.error(
+                f"로그인 후 {verify_season} 시즌 스탯 접근 실패 — "
+                "STATIZ_ID/PW 확인 또는 statiz.co.kr에서 해당 시즌 페이지 직접 접속 테스트"
+            )
             return False
 
         cookie_path.parent.mkdir(parents=True, exist_ok=True)
         cookie_path.write_text(json.dumps(dict(client.cookies)))
-        logger.info("로그인 성공")
+        logger.info(f"로그인 성공 (season={verify_season} 검증 완료)")
         return True
     except Exception as e:
         logger.error(f"로그인 실패: {e}")
@@ -157,6 +188,9 @@ def scrape_pitchers(client: httpx.Client, season: int) -> list[dict]:
     time.sleep(0.5)
     resp = client.get(url)
     resp.raise_for_status()
+    if _statiz_page_needs_login(resp.text):
+        logger.warning(f"투수 페이지 로그인 필요 ({season}) — 세션 만료 또는 계정 권한 없음")
+        return []
     soup = BeautifulSoup(resp.text, "lxml")
     table = soup.find("table")
     if not table:
