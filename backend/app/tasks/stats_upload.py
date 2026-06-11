@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 
 async def run(season: int) -> None:
     """스케줄러에서 호출되는 진입점"""
+    from app.config import settings
+    if not settings.statiz_enabled:
+        logger.info("[stats_upload] statiz 비활성 — 스킵 (backfill-player-stats 사용)")
+        return
+
     # upload_stats.py의 스크래핑 함수 재사용
     root = Path(__file__).resolve().parents[3]  # backend/
     if str(root) not in sys.path:

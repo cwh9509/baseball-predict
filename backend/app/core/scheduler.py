@@ -212,13 +212,11 @@ async def _run_model_retrain() -> None:
 
 
 async def _run_weekly_stats_upload() -> None:
-    """statiz에서 KBO 스탯 스크래핑 후 DB 업로드 + 스플릿 계산"""
+    """KBO 팀 스플릿 OPS 계산 (statiz 미사용 — DB 경기 결과 기반)"""
     try:
         from datetime import date
-        from app.tasks.stats_upload import run as run_stats_upload
         from app.tasks.compute_splits import run as run_splits
         season = date.today().year
-        await run_stats_upload(season=season)
         await run_splits(season=season)
     except Exception as e:
         logger.error(f"weekly_stats_upload 실패: {e}", exc_info=True)
@@ -249,18 +247,20 @@ async def _run_kbo_lineup_peak() -> None:
 
 
 async def _run_daily_stats_refresh() -> None:
-    """KBO/MLB 스탯 + KBO 개인 타자 OPS 캐시 일일 갱신"""
+    """MLB 스탯 + KBO DB 박스스코어 기반 팀 스탯 갱신 (statiz 미사용)"""
     try:
         from datetime import date
         season = date.today().year
-        from app.tasks.stats_upload import run as run_kbo_stats
         from app.tasks.mlb_stats_upload import run as run_mlb_stats
-        from app.collectors.kbo_collector import KBOCollector
+        from app.core.database import AsyncSessionLocal
+        from app.pipeline.player_stats_aggregator import rebuild_team_stats_from_player_db
+        from app.tasks.compute_splits import run as run_splits
 
-        logger.info(f"[daily_stats_refresh] season={season} 시작")
-        await run_kbo_stats(season=season)
+        logger.info(f"[daily_stats_refresh] season={season} 시작 (statiz 제외)")
         await run_mlb_stats(season=season)
-        await KBOCollector().fetch_batting_stats_season(season)
+        async with AsyncSessionLocal() as db:
+            await rebuild_team_stats_from_player_db(db, season)
+        await run_splits(season=season)
         logger.info("[daily_stats_refresh] 완료")
     except Exception as e:
         logger.error(f"daily_stats_refresh 실패: {e}", exc_info=True)

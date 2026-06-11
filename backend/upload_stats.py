@@ -88,18 +88,19 @@ def statiz_login(client: httpx.Client, season: int | None = None) -> bool:
     from datetime import date as date_cls
     verify_season = season or date_cls.today().year
 
-    uid = os.environ.get("STATIZ_ID", "")
-    pw  = os.environ.get("STATIZ_PW", "")
+    uid = (os.environ.get("STATIZ_ID", "") or "").strip()
+    pw = (os.environ.get("STATIZ_PW", "") or "").strip()
     if not uid or not pw:
         try:
             from app.config import settings
-            uid = uid or settings.statiz_id
-            pw = pw or settings.statiz_pw
+            uid = uid or (settings.statiz_id or "").strip()
+            pw = pw or (settings.statiz_pw or "").strip()
         except Exception:
             pass
     if not uid or not pw:
         logger.error("STATIZ_ID / STATIZ_PW 환경변수 미설정")
         return False
+    logger.info(f"statiz 로그인 시도 (id={uid[:3]}***@{uid.split('@')[-1] if '@' in uid else '?'})")
 
     cookie_path = Path("data/raw/statiz_cookies.json")
     if cookie_path.exists():
@@ -131,19 +132,24 @@ def statiz_login(client: httpx.Client, season: int | None = None) -> bool:
         }
         resp = client.post(
             STATIZ_LOGIN_URL,
-            data={**hidden, "userID": uid, "userPassword": pw, "autoLogin": "Y"},
+            data={**hidden, "userID": uid, "userPassword": pw, "autoLogin": "Y", "location": "web"},
             headers={"Referer": f"{STATIZ_BASE_URL}/member/?m=login",
                      "Content-Type": "application/x-www-form-urlencoded"},
         )
         has_token = "access_token" in client.cookies or "PHPSESSID" in client.cookies
         if not has_token:
-            logger.error(f"로그인 실패 — 응답 쿠키 없음 (status={resp.status_code})")
+            snippet = (resp.text or "")[:200].replace("\n", " ")
+            logger.error(
+                f"로그인 실패 — 응답 쿠키 없음 (status={resp.status_code}, body={snippet!r})"
+            )
             return False
 
         if not _statiz_verify_session(client, verify_season):
+            probe = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year={verify_season}&ipp=10")
+            reason = "login_required" if _statiz_page_needs_login(probe.text) else "no_table"
             logger.error(
-                f"로그인 후 {verify_season} 시즌 스탯 접근 실패 — "
-                "STATIZ_ID/PW 확인 또는 statiz.co.kr에서 해당 시즌 페이지 직접 접속 테스트"
+                f"로그인 후 {verify_season} 시즌 스탯 접근 실패 (reason={reason}) — "
+                "ID/PW 오류 또는 Railway IP에서 statiz 차단 가능. 로컬 PC에서 upload_stats.py 실행 권장"
             )
             return False
 

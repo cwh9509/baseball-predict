@@ -320,7 +320,7 @@ class KBOCollector(BaseCollector):
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
-                if not self._statiz_login(client):
+                if not self._statiz_login(client, season=season):
                     logger.warning(f"statiz 로그인 실패 — 최근 {(end_date - start_date).days}일 투수 통계 수집 불가")
                     return []
 
@@ -407,29 +407,41 @@ class KBOCollector(BaseCollector):
         logger.info(f"statiz 최근 투수 통계: {len(results)}명 ({sdate}~{edate})")
         return results
 
-    def _statiz_login(self, client: httpx.Client) -> bool:
-        """statiz.co.kr 로그인 → 쿠키 설정. 성공 시 True 반환."""
+    def _statiz_page_needs_login(self, html: str) -> bool:
+        return "로그인 후 이용" in html or "location.href='/member/" in html
+
+    def _statiz_verify_session(self, client: httpx.Client, season: int) -> bool:
+        from bs4 import BeautifulSoup
+        url = f"{STATIZ_STATS_URL}?m=main&m2=pitching&year={season}&ipp=10"
+        resp = client.get(url)
+        if resp.status_code != 200 or self._statiz_page_needs_login(resp.text):
+            return False
+        return BeautifulSoup(resp.text, "lxml").find("table") is not None
+
+    def _statiz_login(self, client: httpx.Client, season: int | None = None) -> bool:
+        """statiz.co.kr 로그인 → 쿠키 설정. 대상 시즌 페이지까지 검증."""
         import json
         from pathlib import Path
         from app.config import settings as app_settings
 
-        uid = getattr(app_settings, "statiz_id", "")
-        pw  = getattr(app_settings, "statiz_pw", "")
+        if not getattr(app_settings, "statiz_enabled", False):
+            return False
+
+        verify_season = season or time.localtime().tm_year
+        uid = (getattr(app_settings, "statiz_id", "") or "").strip()
+        pw = (getattr(app_settings, "statiz_pw", "") or "").strip()
         if not uid or not pw:
             logger.warning("STATIZ_ID / STATIZ_PW 환경변수 미설정 — 로그인 스킵")
             return False
 
-        # 저장된 쿠키가 있으면 먼저 시도
         cookie_path = Path("data/raw/statiz_cookies.json")
         if cookie_path.exists():
             try:
                 saved = json.loads(cookie_path.read_text())
                 for name, value in saved.items():
                     client.cookies.set(name, value, domain="statiz.co.kr")
-                # 실제 접근 가능한지 확인
-                test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
-                if test.status_code == 200 and "로그인" not in test.text[:500]:
-                    logger.info("statiz 저장 쿠키로 세션 복원 성공")
+                if self._statiz_verify_session(client, verify_season):
+                    logger.info(f"statiz 저장 쿠키로 세션 복원 성공 (season={verify_season})")
                     return True
                 logger.info("statiz 저장 쿠키 만료 — 재로그인 시도")
                 client.cookies.clear()
@@ -467,30 +479,29 @@ class KBOCollector(BaseCollector):
 
             resp = client.post(
                 STATIZ_LOGIN_URL,
-                data={**hidden, "userID": uid, "userPassword": pw},
+                data={**hidden, "userID": uid, "userPassword": pw, "autoLogin": "Y", "location": "web"},
                 headers={"Referer": login_page_url, "Content-Type": "application/x-www-form-urlencoded"},
             )
 
-            # 로그인 성공 여부 확인 (쿠키 또는 응답 내용으로)
             has_token = "access_token" in client.cookies or "PHPSESSID" in client.cookies
             if not has_token:
                 logger.warning(f"statiz 로그인 응답 쿠키 없음 (status={resp.status_code})")
                 return False
 
-            # 실제 접근 테스트
-            test = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year=2025&ipp=10")
-            if test.status_code != 200:
-                logger.warning(f"statiz 로그인 후 접근 실패: {test.status_code}")
+            if not self._statiz_verify_session(client, verify_season):
+                logger.warning(
+                    f"statiz {verify_season} 시즌 스탯 접근 실패 — "
+                    "ID/PW 오류, 유료 권한 없음, 또는 과도한 요청으로 일시 차단 가능"
+                )
                 return False
 
-            # 쿠키 저장
             try:
                 cookie_path.parent.mkdir(parents=True, exist_ok=True)
                 cookie_path.write_text(json.dumps(dict(client.cookies)))
             except Exception:
                 pass
 
-            logger.info("statiz 로그인 성공")
+            logger.info(f"statiz 로그인 성공 (season={verify_season} 검증 완료)")
             return True
 
         except Exception as e:
@@ -541,7 +552,7 @@ class KBOCollector(BaseCollector):
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
-                if not self._statiz_login(client):
+                if not self._statiz_login(client, season=season):
                     logger.warning(f"statiz 로그인 실패 — {season} 투수 통계 수집 불가")
                     return []
 
@@ -722,7 +733,7 @@ class KBOCollector(BaseCollector):
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
-                if not self._statiz_login(client):
+                if not self._statiz_login(client, season=season):
                     logger.warning(f"statiz 로그인 실패 — {season} 타자 통계 수집 불가")
                     return []
 
@@ -883,7 +894,7 @@ class KBOCollector(BaseCollector):
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
-                if not self._statiz_login(client):
+                if not self._statiz_login(client, season=season):
                     return None
 
                 resp = client.get(f"{STATIZ_STATS_URL}?m=main&m2=pitching&year={season}&ipp=500")
@@ -1005,7 +1016,7 @@ class KBOCollector(BaseCollector):
 
         try:
             with httpx.Client(timeout=30, follow_redirects=True, headers=base_headers) as client:
-                if not self._statiz_login(client):
+                if not self._statiz_login(client, season=season):
                     logger.warning("statiz 로그인 실패 — 타선 스플릿 수집 불가")
                     return {}
 

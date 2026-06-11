@@ -203,22 +203,45 @@ def _normalize_batter_name(name: str) -> str:
     return re.sub(r"[\s·\-]", "", name.strip())
 
 
-async def _load_kbo_batter_ops_map(season: int) -> dict[tuple[str, str], float]:
-    """KBO 시즌 타자 OPS 맵 — (정규화이름, 팀약어) → OPS"""
+async def _load_kbo_batter_ops_map(
+    season: int,
+    db: Optional[AsyncSession] = None,
+) -> dict[tuple[str, str], float]:
+    """KBO 시즌 타자 OPS 맵 — (정규화이름, 팀약어) → OPS (DB 우선)"""
     now = time.time()
     cached = _KBO_BATTER_CACHE.get(season)
     if cached and (now - cached[0]) < _BATTER_CACHE_TTL:
         return cached[1]
 
-    from app.collectors.kbo_collector import KBOCollector
-    col = KBOCollector()
-    batters = await col.fetch_batting_stats_season(season)
-
     ops_map: dict[tuple[str, str], float] = {}
-    for b in batters:
-        key = (_normalize_batter_name(b.get("name", "")), b.get("team_short", ""))
-        if key[0] and b.get("ops") is not None:
-            ops_map[key] = float(b["ops"])
+    if db is not None:
+        from sqlalchemy import select
+        from app.models.kbo_player_stats import KboPlayerSeasonStat
+        from app.pipeline.player_stats_aggregator import USE_DB_BATTER_MIN_PA
+
+        rows = (await db.execute(
+            select(KboPlayerSeasonStat).where(
+                KboPlayerSeasonStat.season == season,
+                KboPlayerSeasonStat.role == "batter",
+                KboPlayerSeasonStat.pa >= USE_DB_BATTER_MIN_PA,
+            )
+        )).scalars().all()
+        for b in rows:
+            if b.ops is None:
+                continue
+            key = (_normalize_batter_name(b.name), b.team_short or "")
+            if key[0]:
+                ops_map[key] = float(b.ops)
+
+    if not ops_map:
+        from app.config import settings
+        if settings.statiz_enabled:
+            from app.collectors.kbo_collector import KBOCollector
+            batters = await KBOCollector().fetch_batting_stats_season(season)
+            for b in batters:
+                key = (_normalize_batter_name(b.get("name", "")), b.get("team_short", ""))
+                if key[0] and b.get("ops") is not None:
+                    ops_map[key] = float(b["ops"])
 
     _KBO_BATTER_CACHE[season] = (now, ops_map)
     return ops_map
@@ -294,7 +317,7 @@ async def _lookup_batter_ops(
             if s == season:
                 m = kbo_map
             else:
-                m = await _load_kbo_batter_ops_map(s)
+                m = await _load_kbo_batter_ops_map(s, db=db)
             ops = m.get((norm, team_short)) or m.get((norm, ""))
             if ops is None:
                 for (n, _), v in m.items():
@@ -332,7 +355,7 @@ async def get_roster_lineup_features(
     kbo_map: dict = {}
     mlb_map: dict = {}
     if league == "KBO":
-        kbo_map = await _load_kbo_batter_ops_map(season)
+        kbo_map = await _load_kbo_batter_ops_map(season, db=db)
     elif league == "MLB":
         mlb_map = await _load_mlb_batter_ops_map(season)
 

@@ -98,6 +98,9 @@ async def seed_season_from_statiz(db: AsyncSession, season: int) -> dict:
 
     b_count = 0
     try:
+        from app.config import settings
+        if not settings.statiz_enabled:
+            raise RuntimeError("statiz 비활성 (STATIZ_ENABLED=false)")
         from app.collectors.kbo_collector import KBOCollector
         batters = await KBOCollector().fetch_batting_stats_season(season)
         for b in batters:
@@ -233,16 +236,35 @@ def _pitcher_game_row(game, season, team_short, p) -> dict:
 async def _lookup_pitcher_handedness(db, name, team_short, season) -> Optional[str]:
     if not name:
         return None
-    row = (await db.execute(
-        select(KboPlayerSeasonStat.handedness).where(
-            and_(
-                KboPlayerSeasonStat.season == season,
-                KboPlayerSeasonStat.name == name,
-                KboPlayerSeasonStat.role == "pitcher",
-            )
-        )
-    )).scalar_one_or_none()
-    return row
+    from app.models.kbo_stats import KboPitcherStat
+
+    for model, conds in (
+        (KboPitcherStat, (
+            KboPitcherStat.season == season,
+            KboPitcherStat.name == name,
+            KboPitcherStat.team_short == team_short,
+            KboPitcherStat.handedness.isnot(None),
+        )),
+        (KboPlayerSeasonStat, (
+            KboPlayerSeasonStat.season == season,
+            KboPlayerSeasonStat.name == name,
+            KboPlayerSeasonStat.team_short == team_short,
+            KboPlayerSeasonStat.role == "pitcher",
+            KboPlayerSeasonStat.handedness.isnot(None),
+        )),
+        (KboPlayerSeasonStat, (
+            KboPlayerSeasonStat.season == season,
+            KboPlayerSeasonStat.name == name,
+            KboPlayerSeasonStat.role == "pitcher",
+            KboPlayerSeasonStat.handedness.isnot(None),
+        )),
+    ):
+        hand = (await db.execute(
+            select(model.handedness).where(and_(*conds)).limit(1)
+        )).scalar_one_or_none()
+        if hand:
+            return hand
+    return None
 
 
 async def recompute_season_stats(
@@ -415,21 +437,21 @@ async def get_db_pitcher_stats(
                     and_(
                         KboPlayerSeasonStat.season == s,
                         KboPlayerSeasonStat.name == n,
+                        KboPlayerSeasonStat.team_short == team_short,
                         KboPlayerSeasonStat.role == "pitcher",
                     )
-                )
-            )).scalar_one_or_none()
+                ).limit(1)
+            )).scalars().first()
             if not row:
                 row = (await db.execute(
                     select(KboPlayerSeasonStat).where(
                         and_(
                             KboPlayerSeasonStat.season == s,
                             KboPlayerSeasonStat.name == n,
-                            KboPlayerSeasonStat.team_short == team_short,
                             KboPlayerSeasonStat.role == "pitcher",
                         )
-                    )
-                )).scalar_one_or_none()
+                    ).limit(1)
+                )).scalars().first()
             if not row:
                 continue
             if row.source == "db" and row.ip >= USE_DB_PITCHER_MIN_IP:
@@ -468,10 +490,21 @@ async def get_db_batter_ops(
                     and_(
                         KboPlayerSeasonStat.season == s,
                         KboPlayerSeasonStat.name == n,
+                        KboPlayerSeasonStat.team_short == team_short,
                         KboPlayerSeasonStat.role == "batter",
                     )
-                )
-            )).scalar_one_or_none()
+                ).limit(1)
+            )).scalars().first()
+            if not row:
+                row = (await db.execute(
+                    select(KboPlayerSeasonStat).where(
+                        and_(
+                            KboPlayerSeasonStat.season == s,
+                            KboPlayerSeasonStat.name == n,
+                            KboPlayerSeasonStat.role == "batter",
+                        )
+                    ).limit(1)
+                )).scalars().first()
             if not row:
                 continue
             if row.source == "db" and row.pa >= USE_DB_BATTER_MIN_PA and row.ops is not None:
@@ -479,6 +512,95 @@ async def get_db_batter_ops(
             if row.source == "statiz" and row.ops is not None:
                 return row.ops
     return None
+
+
+async def rebuild_team_stats_from_player_db(db: AsyncSession, season: int) -> dict:
+    """Naver 박스스코어 누적 → 팀 타선/불펜 테이블 갱신 (statiz 불필요)"""
+    from collections import defaultdict
+    from app.models.kbo_stats import KboTeamBattingStat, KboTeamBullypenStat
+
+    batters = (await db.execute(
+        select(KboPlayerSeasonStat).where(
+            and_(
+                KboPlayerSeasonStat.season == season,
+                KboPlayerSeasonStat.role == "batter",
+                KboPlayerSeasonStat.pa > 0,
+            )
+        )
+    )).scalars().all()
+
+    team_pa: dict[str, int] = defaultdict(int)
+    team_ops_w: dict[str, float] = defaultdict(float)
+    team_k_w: dict[str, float] = defaultdict(float)
+    for b in batters:
+        if b.ops is None:
+            continue
+        team_pa[b.team_short] += b.pa
+        team_ops_w[b.team_short] += b.ops * b.pa
+        team_k_w[b.team_short] += (b.k_rate or 0.2) * b.pa
+
+    batting_n = 0
+    for team_short, pa in team_pa.items():
+        if pa < 50:
+            continue
+        ops = round(team_ops_w[team_short] / pa, 3)
+        k_rate = round(team_k_w[team_short] / pa, 3)
+        wrc_plus = round(100 + (ops - 0.740) / 0.740 * 100, 1)
+        vals = dict(season=season, team_short=team_short, ops=ops, wrc_plus=wrc_plus, k_rate=k_rate)
+        stmt = pg_insert(KboTeamBattingStat).values(**vals).on_conflict_do_update(
+            constraint="uq_kbo_team_batting",
+            set_={"ops": ops, "wrc_plus": wrc_plus, "k_rate": k_rate},
+        )
+        await db.execute(stmt)
+        batting_n += 1
+
+    reliever_lines = (await db.execute(
+        select(KboPlayerGameStat).where(
+            and_(
+                KboPlayerGameStat.season == season,
+                KboPlayerGameStat.role == "pitcher",
+                KboPlayerGameStat.is_starter == 0,
+                KboPlayerGameStat.ip > 0,
+            )
+        )
+    )).scalars().all()
+
+    team_ip: dict[str, float] = defaultdict(float)
+    team_era_w: dict[str, float] = defaultdict(float)
+    team_whip_w: dict[str, float] = defaultdict(float)
+    team_rel_count: dict[str, set] = defaultdict(set)
+    for line in reliever_lines:
+        if line.ip <= 0:
+            continue
+        era_g = line.er * 9.0 / line.ip
+        whip_g = (line.hits_allowed + line.bb_allowed) / line.ip
+        t = line.team_short
+        team_ip[t] += line.ip
+        team_era_w[t] += era_g * line.ip
+        team_whip_w[t] += whip_g * line.ip
+        team_rel_count[t].add(line.player_name)
+
+    bullpen_n = 0
+    for team_short, ip in team_ip.items():
+        if ip < 10:
+            continue
+        bp_era = round(team_era_w[team_short] / ip, 2)
+        bp_whip = round(team_whip_w[team_short] / ip, 3)
+        cnt = len(team_rel_count[team_short])
+        vals = dict(
+            season=season, team_short=team_short,
+            bullpen_era=bp_era, bullpen_whip=bp_whip, bullpen_count=cnt,
+        )
+        stmt = pg_insert(KboTeamBullypenStat).values(**vals).on_conflict_do_update(
+            constraint="uq_kbo_team_bullpen",
+            set_={"bullpen_era": bp_era, "bullpen_whip": bp_whip, "bullpen_count": cnt},
+        )
+        await db.execute(stmt)
+        bullpen_n += 1
+
+    await db.commit()
+    logger.info(f"[player_stats] 팀 스탯 DB 집계 완료: 타선 {batting_n}팀, 불펜 {bullpen_n}팀 (season={season})")
+    return {"team_batting": batting_n, "team_bullpen": bullpen_n}
 
 
 async def backfill_from_final_games(db: AsyncSession, season: int) -> int:
@@ -499,4 +621,5 @@ async def backfill_from_final_games(db: AsyncSession, season: int) -> int:
     for g in games:
         if await ingest_final_game(db, g):
             count += 1
+    await rebuild_team_stats_from_player_db(db, season)
     return count

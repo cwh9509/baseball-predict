@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "America/New_York"
     log_level: str = "INFO"
 
-    # --- statiz.co.kr 로그인 (KBO 투수 통계) ---
+    # --- statiz.co.kr (기본 비활성 — 차단 시 Naver 박스스코어 DB 경로 사용) ---
+    statiz_enabled: bool = False
     statiz_id: str = ""
     statiz_pw: str = ""
 

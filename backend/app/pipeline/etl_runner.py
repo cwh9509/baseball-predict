@@ -198,8 +198,11 @@ class ETLRunner:
                     # KBO: 경기 종료 후 Naver 박스스코어 → 자체 선수 스탯 집계
                     if self.league == "KBO":
                         try:
-                            from app.pipeline.player_stats_aggregator import ingest_final_game
-                            await ingest_final_game(db, game)
+                            from app.pipeline.player_stats_aggregator import (
+                                ingest_final_game, rebuild_team_stats_from_player_db,
+                            )
+                            if await ingest_final_game(db, game):
+                                await rebuild_team_stats_from_player_db(db, game.game_date.year)
                         except Exception as e:
                             logger.warning(f"game_id={game.id} 선수 스탯 집계 실패: {e}")
             await db.commit()

@@ -419,11 +419,18 @@ async def manual_lineup(payload: ManualLineupPayload, db: AsyncSession = Depends
 
 @router.post("/collect-stats")
 async def trigger_collect_stats(season: int = Query(default=None)):
-    """statiz 스탯 수집 + DB 업로드 수동 트리거"""
-    import asyncio
+    """(비활성) statiz 스탯 수집 — 차단 시 backfill-player-stats 사용"""
     from datetime import date as date_cls
+    from app.config import settings
 
     s = season or date_cls.today().year
+    if not settings.statiz_enabled:
+        return {
+            "status": "skipped",
+            "season": s,
+            "reason": "statiz 비활성 (STATIZ_ENABLED=false). POST /backfill-player-stats 사용",
+        }
+
     logger.info(f"수동 트리거: KBO 스탯 수집 시작 (season={s})")
 
     async def _run():
