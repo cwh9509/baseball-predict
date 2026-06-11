@@ -160,7 +160,9 @@ class PybaseballCollector(BaseCollector):
         import statsapi  # pip install MLB-StatsAPI
 
         cache_key = f"schedule_mlb_{target_date.isoformat()}"
-        cached = self._load_cache(cache_key)
+        # 과거 날짜는 scheduled→final로 바뀌므로 캐시 사용 금지 (stale 방지)
+        use_cache = target_date >= date.today()
+        cached = self._load_cache(cache_key) if use_cache else None
         if cached is not None:
             return self._df_to_game_raws(cached, target_date)
 
@@ -172,7 +174,8 @@ class PybaseballCollector(BaseCollector):
             df = pd.DataFrame(data)
             if df.empty:
                 return []
-            self._save_cache(df, cache_key)
+            if use_cache:
+                self._save_cache(df, cache_key)
             return self._df_to_game_raws(df, target_date)
         except Exception as e:
             logger.error(f"MLB 일정 수집 실패 ({target_date}): {e}")

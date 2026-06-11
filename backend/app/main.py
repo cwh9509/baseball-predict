@@ -81,17 +81,10 @@ def create_app() -> FastAPI:
             except Exception as e:
                 logger.warning(f"시작 시 {league} 결과 수집 실패: {e}")
 
-        # 오늘 예측: KBO+MLB 통합으로 한번에
+        # 일정 수집 + 예측 (KBO 당일, MLB 당일~+7일 — 누락분 자동 보완)
         try:
-            async with AsyncSessionLocal() as db:
-                today_count = await db.execute(
-                    select(func.count(Prediction.id))
-                    .join(Game)
-                    .where(Game.game_date == today)
-                )
-            if (today_count.scalar() or 0) == 0:
-                logger.info(f"시작 시 오늘({today}) 예측 실행")
-                await run_predict()
+            logger.info("시작 시 KBO/MLB 일정 수집 및 예측 보완")
+            await run_predict()
         except Exception as e:
             logger.warning(f"시작 시 예측 실행 실패: {e}")
 
@@ -109,15 +102,13 @@ def create_app() -> FastAPI:
                 import asyncio
                 asyncio.create_task(_auto_retrain())
 
-        # 향후 7일 경기 일정 수집
-        from app.pipeline.etl_runner import ETLRunner
-        runner = ETLRunner()
+        # KBO 향후 7일 일정 선수집 (예측은 pre_game_predict가 당일 위주)
         for i in range(1, 8):
             future_date = today + timedelta(days=i)
             try:
-                await runner.run_for_date(future_date)
+                await ETLRunner(league="KBO").run_for_date(future_date)
             except Exception as e:
-                logger.warning(f"향후 경기 수집 실패 ({future_date}): {e}")
+                logger.warning(f"KBO 향후 경기 수집 실패 ({future_date}): {e}")
 
     @app.on_event("shutdown")
     async def shutdown_event():

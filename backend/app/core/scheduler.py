@@ -227,24 +227,13 @@ async def _run_lineup_watch_pre_game() -> None:
 
 
 async def _run_mlb_next_day_collect() -> None:
-    """ET 15:00 (= KST 00:00) — 향후 7일치 MLB 경기 미리 수집 + 예측"""
+    """ET 15:00 (= KST 00:00) — MLB 당일~7일치 경기 수집 + 예측 (pre_game_predict 공통 로직)"""
     try:
-        from datetime import date, timedelta
-        from app.pipeline.etl_runner import ETLRunner
         from app.tasks.pre_game_predict import run as predict_run
 
-        today_et = date.today()
-        logger.info(f"MLB 7일치 경기 수집 시작 ({today_et} ~ +6일)")
-        for i in range(1, 8):  # 내일부터 7일
-            target = today_et + timedelta(days=i)
-            try:
-                runner = ETLRunner(league="MLB")
-                await runner.run_for_date(target)
-                await predict_run(target_date=target)
-                logger.info(f"MLB {target} 수집 완료")
-            except Exception as e:
-                logger.warning(f"MLB {target} 수집 실패: {e}")
-        logger.info("MLB 7일치 경기 수집 완료")
+        logger.info("MLB 7일치 경기 수집/예측 시작 (공통 pre_game_predict)")
+        await predict_run()
+        logger.info("MLB 7일치 경기 수집/예측 완료")
     except Exception as e:
         logger.error(f"mlb_next_day_collect 실패: {e}", exc_info=True)
 
