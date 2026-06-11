@@ -697,7 +697,7 @@ class KBOCollector(BaseCollector):
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         current_year = time.localtime().tm_year
-        cache_ttl_seconds = 7 * 24 * 3600 if season >= current_year else None
+        cache_ttl_seconds = 24 * 3600 if season >= current_year else None
 
         if cache_path.exists():
             expired = (

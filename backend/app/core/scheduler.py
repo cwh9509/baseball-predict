@@ -101,6 +101,28 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
+    # KBO 라인업 발표 집중 감시 (주말 12~14시 / 평일 16:30~18:30 KST, 10분 간격)
+    # 17:00 KST = 08:00 UTC — 스케줄러 TZ가 Asia/Seoul이면 hour=16-18
+    scheduler.add_job(
+        _run_kbo_lineup_peak,
+        trigger=CronTrigger(
+            hour="12-14,16-18", minute="*/10",
+            timezone=settings.scheduler_timezone
+        ),
+        id="kbo_lineup_peak",
+        name="KBO 라인업 17시 집중 감시",
+        replace_existing=True,
+    )
+
+    # KBO/MLB 스탯 일일 갱신 (매일 04:00 KST — 라인업 전 스탯 최신화)
+    scheduler.add_job(
+        _run_daily_stats_refresh,
+        trigger=CronTrigger(hour=4, minute=0, timezone=settings.scheduler_timezone),
+        id="daily_stats_refresh",
+        name="일일 KBO/MLB 스탯 갱신",
+        replace_existing=True,
+    )
+
     # KBO 경기 시작 30분 전 집중 감시 (10분 간격)
     scheduler.add_job(
         _run_lineup_watch_pre_game,
@@ -154,7 +176,7 @@ def setup_scheduler() -> None:
         replace_existing=True,
     )
 
-    logger.info("스케줄러 작업 등록 완료 (13개 작업)")
+    logger.info("스케줄러 작업 등록 완료 (15개 작업)")
 
 
 async def _run_daily_data_pull() -> None:
@@ -216,6 +238,32 @@ async def _run_lineup_watch() -> None:
         await run()
     except Exception as e:
         logger.error(f"lineup_watch 실패: {e}", exc_info=True)
+
+
+async def _run_kbo_lineup_peak() -> None:
+    try:
+        from app.pipeline.lineup_watcher import run_kbo_peak
+        await run_kbo_peak()
+    except Exception as e:
+        logger.error(f"kbo_lineup_peak 실패: {e}", exc_info=True)
+
+
+async def _run_daily_stats_refresh() -> None:
+    """KBO/MLB 스탯 + KBO 개인 타자 OPS 캐시 일일 갱신"""
+    try:
+        from datetime import date
+        season = date.today().year
+        from app.tasks.stats_upload import run as run_kbo_stats
+        from app.tasks.mlb_stats_upload import run as run_mlb_stats
+        from app.collectors.kbo_collector import KBOCollector
+
+        logger.info(f"[daily_stats_refresh] season={season} 시작")
+        await run_kbo_stats(season=season)
+        await run_mlb_stats(season=season)
+        await KBOCollector().fetch_batting_stats_season(season)
+        logger.info("[daily_stats_refresh] 완료")
+    except Exception as e:
+        logger.error(f"daily_stats_refresh 실패: {e}", exc_info=True)
 
 
 async def _run_lineup_watch_pre_game() -> None:

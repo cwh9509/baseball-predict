@@ -120,9 +120,14 @@ async def update_lineup(
 
     home_lineup_list = lineup_data.get("home_lineup") or []
     away_lineup_list = lineup_data.get("away_lineup") or []
-    if home_lineup_list and away_lineup_list:
+    has_full_lineup = len(home_lineup_list) >= 9 and len(away_lineup_list) >= 9
+    has_starters = bool(lineup_data.get("home_starter")) and bool(lineup_data.get("away_starter"))
+    if has_full_lineup and has_starters:
         updates["lineup_locked"] = True
         updates["lineup_locked_at"] = now
+    elif not has_full_lineup:
+        updates["lineup_locked"] = False
+        updates["lineup_locked_at"] = None
 
     await db.execute(update(Game).where(Game.id == game_id).values(**updates))
     await db.commit()

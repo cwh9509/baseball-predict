@@ -72,6 +72,24 @@ def save_cat_model(model, version: str, league: Optional[str] = None) -> Path:
     return path
 
 
+def save_calibrator(calibrator, version: str, league: Optional[str] = None) -> Path:
+    """Isotonic 확률 캘리브레이터 저장"""
+    lg = (league or settings.league).upper()
+    path = get_model_dir() / f"calib-{lg.lower()}-v{version}.pkl"
+    with open(path, "wb") as f:
+        pickle.dump(calibrator, f)
+    metadata = {
+        "version": version,
+        "model_type": "isotonic_calibrator",
+        "league": lg,
+        "path": str(path),
+    }
+    meta_path = get_model_dir() / f"model_metadata_calib_{lg.lower()}.json"
+    meta_path.write_text(json.dumps(metadata, indent=2))
+    logger.info(f"확률 캘리브레이터 저장: {path}")
+    return path
+
+
 def save_meta_model(model, version: str, league: Optional[str] = None) -> Path:
     """Stacking 메타 모델 저장 (sklearn LogisticRegression)"""
     lg = (league or settings.league).upper()
@@ -150,19 +168,21 @@ def _load_metadata(league: str) -> Optional[dict]:
 
 
 def load_ensemble_models(league: Optional[str] = None) -> tuple:
-    """XGBoost + LightGBM + CatBoost + Stacking 메타 모델 로드
-    Returns: (xgb_model, lgb_model, cat_model, meta_model, version) — 없으면 None
+    """XGBoost + LightGBM + CatBoost + Stacking 메타 + 캘리브레이터 로드
+    Returns: (xgb, lgb, cat, meta, calibrator, version)
     """
     lg = (league or settings.league).upper()
     xgb_meta_path = get_model_dir() / f"model_metadata_{lg.lower()}.json"
     lgb_meta_path = get_model_dir() / f"model_metadata_lgb_{lg.lower()}.json"
     cat_meta_path = get_model_dir() / f"model_metadata_cat_{lg.lower()}.json"
     meta_meta_path = get_model_dir() / f"model_metadata_meta_{lg.lower()}.json"
+    calib_meta_path = get_model_dir() / f"model_metadata_calib_{lg.lower()}.json"
 
     xgb_model, xgb_version = None, None
     lgb_model, lgb_version = None, None
     cat_model, cat_version = None, None
     meta_model, meta_version = None, None
+    calibrator, calib_version = None, None
 
     def _resolve_path(stored: str) -> Path:
         p = Path(stored)
@@ -225,8 +245,21 @@ def load_ensemble_models(league: Optional[str] = None) -> tuple:
         except Exception as e:
             logger.error(f"Stacking 메타 모델 로드 실패: {e}")
 
-    version = xgb_version or lgb_version or cat_version or meta_version
-    return xgb_model, lgb_model, cat_model, meta_model, version
+    if calib_meta_path.exists():
+        try:
+            meta = json.loads(calib_meta_path.read_text())
+            path = _resolve_path(meta.get("path", ""))
+            if path.exists():
+                with open(path, "rb") as f:
+                    calibrator = pickle.load(f)
+                calib_version = meta.get("version")
+            else:
+                logger.warning(f"캘리브레이터 파일 없음: {path}")
+        except Exception as e:
+            logger.warning(f"캘리브레이터 로드 실패: {e}")
+
+    version = xgb_version or lgb_version or cat_version or meta_version or calib_version
+    return xgb_model, lgb_model, cat_model, meta_model, calibrator, version
 
 
 def save_score_models(home_model, away_model, version: str, league: Optional[str] = None) -> None:

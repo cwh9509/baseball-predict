@@ -44,7 +44,7 @@ class Predictor:
 
     def _load_models(self, league: Optional[str] = None):
         lg_key = league or "default"
-        xgb_model, lgb_model, cat_model, meta_model, version = load_ensemble_models(league)
+        xgb_model, lgb_model, cat_model, meta_model, calibrator, version = load_ensemble_models(league)
 
         # 앙상블 로드 실패 시 단일 모델 폴백
         if xgb_model is None and lgb_model is None and cat_model is None:
@@ -63,7 +63,9 @@ class Predictor:
             if meta_model: models_loaded.append("Stacking")
             logger.info(f"[{lg_key}] 앙상블 로드: {'+'.join(models_loaded)} v{version}")
 
-        self._ensemble[lg_key] = (xgb_model, lgb_model, cat_model, meta_model, version or "no-model")
+        self._ensemble[lg_key] = (
+            xgb_model, lgb_model, cat_model, meta_model, calibrator, version or "no-model"
+        )
 
         # 스코어 모델 로드
         home_score, away_score, score_ver = load_score_models(league)
@@ -76,12 +78,12 @@ class Predictor:
         if key not in self._ensemble:
             self._load_models(league)
             key = league
-        return self._ensemble.get(key, (None, None, None, None, "no-model"))
+        return self._ensemble.get(key, (None, None, None, None, None, "no-model"))
 
     @property
     def model_version(self) -> str:
         key = self._league or "default"
-        return self._ensemble.get(key, (None, None, None, None, "no-model"))[4]
+        return self._ensemble.get(key, (None, None, None, None, None, "no-model"))[5]
 
     async def predict(self, game_id: int, db: AsyncSession) -> Optional[dict]:
         """경기에 대한 앙상블 예측 실행"""
@@ -96,7 +98,7 @@ class Predictor:
         if game.league not in self._ensemble:
             self._load_models(game.league)
 
-        xgb_model, lgb_model, cat_model, meta_model, model_version = self._get_models(game.league)
+        xgb_model, lgb_model, cat_model, meta_model, calibrator, model_version = self._get_models(game.league)
 
         if xgb_model is None and lgb_model is None and cat_model is None:
             logger.error(f"[{game.league}] 모델 미로드 — 예측 불가")
@@ -153,6 +155,12 @@ class Predictor:
         except Exception as e:
             logger.error(f"스코어 반영 예측 오류 (game_id={game_id}): {e}")
             return None
+
+        if calibrator is not None:
+            try:
+                home_win_prob = float(calibrator.predict([home_win_prob])[0])
+            except Exception as e:
+                logger.debug(f"캘리브레이션 적용 실패 (game_id={game_id}): {e}")
 
         home_win_prob = max(0.01, min(0.99, home_win_prob))
         confidence = assign_confidence_tier(home_win_prob)

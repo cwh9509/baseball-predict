@@ -20,11 +20,14 @@ from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.features.builder import get_feature_columns, build_features
 from app.features.elo_features import invalidate_elo_cache
-from app.ml.model_registry import save_xgb_model, save_lgb_model, save_cat_model, save_meta_model, save_score_models
+from app.ml.model_registry import (
+    save_xgb_model, save_lgb_model, save_cat_model, save_meta_model,
+    save_score_models, save_calibrator,
+)
 
 logger = logging.getLogger(__name__)
 
-N_OPTUNA_TRIALS = 30    # 튜닝 시도 횟수 (데이터 적을 땐 낮게 유지해 과적합 방지)
+N_OPTUNA_TRIALS = 80    # 튜닝 시도 횟수 (캘리브레이션·개별 OPS 피처 반영 후 증가)
 N_CV_SPLITS = 5
 
 
@@ -77,12 +80,13 @@ class Trainer:
             self._tune_and_fit_catboost, X, y, tscv, version
         )
 
-        # ── 6. Stacking 메타 모델 ──────────────────────────────────────
-        meta_model = await asyncio.to_thread(
-            self._build_stacking_model, xgb_model, lgb_model, cat_model, X, y, tscv
+        # ── 6. Stacking 메타 모델 + 확률 캘리브레이션 ─────────────────
+        meta_model, calibrator = await asyncio.to_thread(
+            self._build_stacking_and_calibrator, xgb_model, lgb_model, cat_model, X, y, tscv
         )
         save_meta_model(meta_model, version, league=self.league)
-        logger.info("Stacking 메타 모델 저장 완료")
+        save_calibrator(calibrator, version, league=self.league)
+        logger.info("Stacking 메타 모델 + Isotonic 캘리브레이터 저장 완료")
 
         # ── 7. 앙상블 CV 정확도 ────────────────────────────────────────
         self._log_ensemble_cv(xgb_model, lgb_model, cat_model, meta_model, X, y, tscv)
@@ -210,8 +214,10 @@ class Trainer:
         save_cat_model(final_model, version, league=self.league)
         return final_model
 
-    def _build_stacking_model(self, xgb_model, lgb_model, cat_model, X, y, tscv):
-        """OOF 예측으로 Stacking 메타 모델 학습"""
+    def _build_stacking_and_calibrator(self, xgb_model, lgb_model, cat_model, X, y, tscv):
+        """OOF 예측으로 Stacking 메타 모델 학습 + Isotonic 확률 캘리브레이션"""
+        from sklearn.isotonic import IsotonicRegression
+
         n = len(X)
         meta_X = np.zeros((n, 3), dtype=np.float32)
 
@@ -219,14 +225,12 @@ class Trainer:
             X_tr, X_val = X[train_idx], X[val_idx]
             y_tr = y[train_idx]
 
-            # clone으로 원본 모델 수정 없이 CV용 학습
             xgb_tmp = clone(xgb_model)
             lgb_tmp = clone(lgb_model)
 
             xgb_tmp.fit(X_tr, y_tr)
             lgb_tmp.fit(X_tr, y_tr)
 
-            # CatBoost는 clone() 대신 파라미터 복사
             from catboost import CatBoostClassifier
             _cat_params = {**cat_model.get_params(), "verbose": 0, "allow_writing_files": False}
             cat_tmp = CatBoostClassifier(**_cat_params)
@@ -239,11 +243,26 @@ class Trainer:
         meta_model = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
         meta_model.fit(meta_X, y)
 
-        # 메타 모델 가중치 로깅
         coefs = meta_model.coef_[0]
         logger.info(f"Stacking 가중치 — XGB: {coefs[0]:.3f}, LGB: {coefs[1]:.3f}, CAT: {coefs[2]:.3f}")
 
-        return meta_model
+        oof_probs = meta_model.predict_proba(meta_X)[:, 1]
+        calibrator = IsotonicRegression(out_of_bounds="clip")
+        calibrator.fit(oof_probs, y)
+
+        # 캘리브레이션 품질 로깅 (high-confidence 구간)
+        for threshold in (0.68, 0.58):
+            mask = (oof_probs >= threshold) | (oof_probs <= 1 - threshold)
+            if mask.sum() >= 10:
+                calibrated = calibrator.predict(oof_probs[mask])
+                actual_rate = y[mask].mean()
+                pred_rate = calibrated.mean()
+                logger.info(
+                    f"캘리브레이션 check |prob-0.5|>={threshold-0.5:.2f}: "
+                    f"예측={pred_rate:.3f} 실제={actual_rate:.3f} (n={mask.sum()})"
+                )
+
+        return meta_model, calibrator
 
     def _log_ensemble_cv(self, xgb_model, lgb_model, cat_model, meta_model, X, y, tscv):
         """Stacking CV 정확도 계산"""

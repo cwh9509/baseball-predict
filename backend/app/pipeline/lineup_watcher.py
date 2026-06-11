@@ -24,6 +24,43 @@ logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
 
 
+def _in_kbo_lineup_peak(now_kst: datetime) -> bool:
+    """KBO 라인업 발표 집중 감시 시간대 (KST)
+    평일: 16:30~18:30 (17:00 전후 발표)
+    주말: 12:00~14:00 (14:00 경기 전후 발표)
+    """
+    minutes = now_kst.hour * 60 + now_kst.minute
+    if now_kst.weekday() < 5:
+        return 16 * 60 + 30 <= minutes <= 18 * 60 + 30
+    return 12 * 60 <= minutes <= 14 * 60
+
+
+def _lineup_batter_count(lineup_json) -> int:
+    if not lineup_json or not isinstance(lineup_json, list):
+        return 0
+    return len(lineup_json)
+
+
+def _needs_lineup_refresh(game: Game) -> bool:
+    """선발만 있거나 타순이 9명 미만이면 계속 수집"""
+    home_n = _lineup_batter_count(game.home_lineup_json)
+    away_n = _lineup_batter_count(game.away_lineup_json)
+    if home_n < 9 or away_n < 9:
+        return True
+    if not game.home_starter_name or not game.away_starter_name:
+        return True
+    return False
+
+
+async def run_kbo_peak() -> None:
+    """17:00 KST 전후 라인업 발표 집중 감시 (스케줄러 10분 간격 호출)"""
+    now_kst = datetime.now(KST)
+    if not _in_kbo_lineup_peak(now_kst):
+        return
+    logger.info(f"KBO 라인업 집중 감시 ({now_kst.strftime('%H:%M')} KST)")
+    await run_for_date(now_kst.date())
+
+
 async def run() -> None:
     """당일 미확정 KBO 경기 라인업 체크 및 업데이트"""
     today = datetime.now(KST).date()
@@ -82,12 +119,9 @@ async def run_for_date_mlb(target_date: date) -> None:
                 Game.game_date == target_date,
                 Game.league == "MLB",
                 Game.status == "scheduled",
-                (Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None) |
-                 Game.home_starter_name.is_(None) | Game.away_starter_name.is_(None) |
-                 Game.home_lineup_json.is_(None) | Game.away_lineup_json.is_(None)),
             )
         )
-        games = result.scalars().all()
+        games = [g for g in result.scalars().all() if _needs_lineup_refresh(g)]
 
         if not games:
             logger.info(f"MLB 라인업 확인 대상 경기 없음 ({target_date})")
@@ -318,13 +352,9 @@ async def run_for_date(target_date: date) -> None:
                 Game.game_date == target_date,
                 Game.league == "KBO",
                 Game.status == "scheduled",
-                # 선발투수 미확정 OR 타순 미수집(lineup_locked여도 타순이 없으면 재수집)
-                (Game.lineup_locked.is_(False) | Game.lineup_locked.is_(None) |
-                 Game.home_starter_name.is_(None) | Game.away_starter_name.is_(None) |
-                 Game.home_lineup_json.is_(None) | Game.away_lineup_json.is_(None)),
             )
         )
-        games = result.scalars().all()
+        games = [g for g in result.scalars().all() if _needs_lineup_refresh(g)]
 
         if not games:
             logger.info(f"라인업 확인 대상 경기 없음 ({target_date})")
@@ -376,21 +406,27 @@ async def run_for_date(target_date: date) -> None:
             home_lineup: list = []
             away_lineup: list = []
 
-            if game.external_game_id and (not home_starter or not away_starter or not home_lineup):
+            need_fetch = (
+                not home_starter or not away_starter
+                or len(home_lineup) < 9 or len(away_lineup) < 9
+            )
+            if game.external_game_id and need_fetch:
                 try:
                     lc_result = await naver_collector.fetch_lineup(game.external_game_id)
                     if lc_result:
                         home_starter = home_starter or lc_result.get("home_starter")
                         away_starter = away_starter or lc_result.get("away_starter")
-                        home_lineup = lc_result.get("home_lineup") or []
-                        away_lineup = lc_result.get("away_lineup") or []
+                        if len(home_lineup) < 9:
+                            home_lineup = lc_result.get("home_lineup") or home_lineup
+                        if len(away_lineup) < 9:
+                            away_lineup = lc_result.get("away_lineup") or away_lineup
                         lineup_source = lc_result.get("source")
                         logger.info(f"game_id={game.id} Naver 선발: home={home_starter}, away={away_starter} ({lineup_source}) 타순: home={len(home_lineup)}명, away={len(away_lineup)}명")
                 except Exception as e:
                     logger.debug(f"game_id={game.id} Naver collector 실패: {e}")
 
             # Naver도 없으면 KBO lineup collector 폴백
-            if game.external_game_id and (not home_starter or not away_starter):
+            if game.external_game_id and need_fetch:
                 try:
                     lc_result = await kbo_collector_lc.fetch_lineup(game.external_game_id)
                     if lc_result:
@@ -462,10 +498,16 @@ async def _update_game_lineup(db: AsyncSession, game: Game, lineup: dict) -> boo
     final_home_starter = home_starter or game.home_starter_name
     final_away_starter = away_starter or game.away_starter_name
     has_full_batting_order = len(home_lineup) >= 9 and len(away_lineup) >= 9
-    if confirmed and final_home_starter and final_away_starter and has_full_batting_order and not game.lineup_locked:
-        updates["lineup_locked"] = True
-        updates["lineup_locked_at"] = now
-        changed = True  # 라인업 확정 자체도 재예측 트리거
+    if confirmed and final_home_starter and final_away_starter and has_full_batting_order:
+        if not game.lineup_locked:
+            updates["lineup_locked"] = True
+            updates["lineup_locked_at"] = now
+            changed = True
+    elif game.lineup_locked and not has_full_batting_order:
+        # 선발만 있을 때 잘못 locked 된 경우 해제
+        updates["lineup_locked"] = False
+        updates["lineup_locked_at"] = None
+        changed = True
 
     if updates:
         updates["updated_at"] = now
